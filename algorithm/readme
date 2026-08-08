@@ -1,0 +1,2 @@
+g++ -std=c++17 -Wall -Wextra src/main.cpp src/SlidingWindow.cpp -Iinclude -o src/output/main.exe
+.\src\output\main.exe
