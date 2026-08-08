@@ -20,6 +20,8 @@ output - percentage , window date
 - sliding window 
 - normalize 
     dxx = (dx-dy)/dy 
+- fft
+    Xk​=∑n=0N−1​xn​e−i2πkn/N
 
 
 

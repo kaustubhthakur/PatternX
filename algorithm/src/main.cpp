@@ -1,13 +1,17 @@
 #include <iostream>
 #include <vector>
+#include <complex>
 
 #include "../include/StockData.hpp"
-#include "../include/SlidingWindow.hpp"
 #include "../include/Normalizer.hpp"
+#include "../include/FFT.hpp"
 
 int main()
 {
-    
+    // ============================================
+    // 1. Load stock data
+    // ============================================
+
     std::vector<PriceData> data =
         loadStockData("data/stocks.csv");
 
@@ -16,74 +20,144 @@ int main()
               << "\n\n";
 
 
-  
-    std::vector<PriceData> tcs =
-        getStock(data, "TCS");
+    // ============================================
+    // 2. Extract TCS closing prices
+    // ============================================
 
-    std::cout << "TCS rows: "
-              << tcs.size()
-              << "\n\n";
+    std::vector<double> prices;
 
-
-  
-    std::vector<double> prices =
-        getClosePrices(data, "TCS");
+    for (const auto& row : data)
+    {
+        if (row.symbol == "TCS")
+        {
+            prices.push_back(row.close);
+        }
+    }
 
     std::cout << "TCS closing prices: "
               << prices.size()
               << "\n\n";
 
 
-   
-    std::cout << "First 5 closing prices:\n";
+    // ============================================
+    // 3. Create first 30-day window
+    // ============================================
 
-    for (std::size_t i = 0;
-         i < 5 && i < prices.size();
-         ++i)
+    const std::size_t WINDOW_SIZE = 30;
+
+    if (prices.size() < WINDOW_SIZE)
     {
-        std::cout << prices[i] << "\n";
+        std::cerr << "Not enough TCS data.\n";
+        return 1;
     }
 
+    std::vector<double> window(
+        prices.begin(),
+        prices.begin() + WINDOW_SIZE
+    );
 
-    
-    std::size_t windowSize = 30;
+    std::cout << "Window size: "
+              << window.size()
+              << "\n\n";
 
-    std::vector<std::vector<double>> windows =
-        createWindows(prices, windowSize);
+
+    // ============================================
+    // 4. Print original window
+    // ============================================
+
+    std::cout << "Original 30-day window:\n";
+
+    for (std::size_t i = 0; i < window.size(); ++i)
+    {
+        std::cout << i
+                  << " : "
+                  << window[i]
+                  << '\n';
+    }
 
     std::cout << "\n";
-    std::cout << "Window size: "
-              << windowSize
-              << "\n";
-
-    std::cout << "Total windows: "
-              << windows.size()
-              << "\n";
 
 
-   
-    if (!windows.empty())
+    // ============================================
+    // 5. Normalize
+    // ============================================
+
+    std::vector<double> normalized =
+        normalizeWindow(window);
+
+    std::cout << "Normalized 30-day window:\n";
+
+    for (std::size_t i = 0; i < normalized.size(); ++i)
     {
-        std::cout << "\nFirst window (original):\n";
-
-        for (double price : windows[0])
-        {
-            std::cout << price << "\n";
-        }
-
-
-        std::vector<double> normalized =
-            normalizeWindow(windows[0]);
-
-
-        std::cout << "\nFirst window (normalized):\n";
-
-        for (double value : normalized)
-        {
-            std::cout << value << "\n";
-        }
+        std::cout << i
+                  << " : "
+                  << normalized[i]
+                  << '\n';
     }
 
+    std::cout << "\n";
+
+
+    // ============================================
+    // 6. Compute FFT
+    // ============================================
+
+    std::cout << "Computing FFT...\n\n";
+
+    std::vector<std::complex<double>> fftResult =
+        computeFFT(normalized);
+
+
+    // ============================================
+    // 7. Compute FFT magnitudes
+    // ============================================
+
+    std::vector<double> magnitude =
+        computeMagnitude(fftResult);
+
+
+    // ============================================
+    // 8. Print FFT output
+    // ============================================
+
+    std::cout << "FFT size: "
+              << fftResult.size()
+              << "\n\n";
+
+    std::cout << "FFT Magnitudes:\n";
+
+    for (std::size_t i = 0; i < magnitude.size(); ++i)
+    {
+        std::cout << "Frequency "
+                  << i
+                  << " : "
+                  << magnitude[i]
+                  << '\n';
+    }
+
+    std::cout << "\n";
+
+
+    // ============================================
+    // 9. Print complex FFT values
+    // ============================================
+
+    std::cout << "Complex FFT values:\n";
+
+    for (std::size_t i = 0; i < fftResult.size(); ++i)
+    {
+        std::cout << "Frequency "
+                  << i
+                  << " : "
+                  << fftResult[i].real()
+                  << " + "
+                  << fftResult[i].imag()
+                  << "i\n";
+    }
+
+    std::cout << "\n";
+
+    std::cout << "FFT test completed successfully.\n";
 
     return 0;
 }
