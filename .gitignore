@@ -1,20 +1,16 @@
-# Stock market datasets
+
 algorithm/data/*.csv
 
-# Python
 __pycache__/
 *.pyc
 
-# Node.js
 node_modules/
 
 # Next.js
 .next/
 
-# Environment variables
 .env
 .env.local
 
-# Build files
 dist/
 build/
