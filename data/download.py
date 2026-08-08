@@ -4,9 +4,7 @@ from pathlib import Path
 
 
 STOCKS = [
-    # =========================
-    # BANKING / FINANCE
-    # =========================
+
     "HDFCBANK.NS",
     "ICICIBANK.NS",
     "SBIN.NS",
@@ -42,9 +40,7 @@ STOCKS = [
     "HDFCAMC.NS",
     "LICI.NS",
 
-    # =========================
-    # IT / SOFTWARE
-    # =========================
+
     "TCS.NS",
     "INFY.NS",
     "HCLTECH.NS",
@@ -62,9 +58,6 @@ STOCKS = [
     "TATATECH.NS",
     "MINDTREE.NS",
 
-    # =========================
-    # OIL / GAS / ENERGY
-    # =========================
     "RELIANCE.NS",
     "ONGC.NS",
     "IOC.NS",
@@ -87,9 +80,6 @@ STOCKS = [
     "NHPC.NS",
     "SJVN.NS",
 
-    # =========================
-    # AUTOMOBILE
-    # =========================
     "MARUTI.NS",
     "TATAMOTORS.NS",
     "M&M.NS",
@@ -107,9 +97,6 @@ STOCKS = [
     "ESCORTS.NS",
     "TIINDIA.NS",
 
-    # =========================
-    # PHARMA / HEALTHCARE
-    # =========================
     "SUNPHARMA.NS",
     "DRREDDY.NS",
     "CIPLA.NS",
@@ -130,9 +117,6 @@ STOCKS = [
     "AJANTPHARM.NS",
     "MANKIND.NS",
 
-    # =========================
-    # METALS / MINING
-    # =========================
     "TATASTEEL.NS",
     "JSWSTEEL.NS",
     "HINDALCO.NS",
@@ -145,9 +129,7 @@ STOCKS = [
     "NATIONALUM.NS",
     "APLAPOLLO.NS",
 
-    # =========================
-    # CONSTRUCTION / CEMENT
-    # =========================
+
     "LT.NS",
     "ULTRACEMCO.NS",
     "GRASIM.NS",
@@ -159,9 +141,7 @@ STOCKS = [
     "RAMCOCEM.NS",
     "JKLAKSHMI.NS",
 
-    # =========================
-    # CAPITAL GOODS / ENGINEERING
-    # =========================
+
     "SIEMENS.NS",
     "ABB.NS",
     "BEL.NS",
@@ -181,9 +161,6 @@ STOCKS = [
     "SUZLON.NS",
     "KAYNES.NS",
 
-    # =========================
-    # CONSUMER / FMCG
-    # =========================
     "HINDUNILVR.NS",
     "ITC.NS",
     "NESTLEIND.NS",
@@ -204,9 +181,7 @@ STOCKS = [
     "PAGEIND.NS",
     "BATAINDIA.NS",
 
-    # =========================
-    # TELECOM / MEDIA
-    # =========================
+
     "BHARTIARTL.NS",
     "IDEA.NS",
     "INDUSTOWER.NS",
@@ -215,9 +190,7 @@ STOCKS = [
     "SUNTV.NS",
     "PVRINOX.NS",
 
-    # =========================
-    # REAL ESTATE
-    # =========================
+
     "DLF.NS",
     "LODHA.NS",
     "GODREJPROP.NS",
@@ -227,9 +200,6 @@ STOCKS = [
     "SOBHA.NS",
     "BRIGADE.NS",
 
-    # =========================
-    # INFRA / TRANSPORT
-    # =========================
     "ADANIPORTS.NS",
     "ADANIENT.NS",
     "IRCTC.NS",
@@ -241,9 +211,6 @@ STOCKS = [
     "ASHOKA.NS",
     "KEC.NS",
 
-    # =========================
-    # CHEMICALS
-    # =========================
     "PIDILITIND.NS",
     "SRF.NS",
     "UPL.NS",
@@ -256,9 +223,6 @@ STOCKS = [
     "COROMANDEL.NS",
     "SUMICHEM.NS",
 
-    # =========================
-    # TEXTILES / APPAREL
-    # =========================
     "PAGEIND.NS",
     "KPRMILL.NS",
     "WELSPUNLIV.NS",
@@ -266,9 +230,6 @@ STOCKS = [
     "ARVIND.NS",
     "RAYMOND.NS",
 
-    # =========================
-    # SPECIAL / DIVERSIFIED
-    # =========================
     "ADANIENT.NS",
     "ADANIPORTS.NS",
     "ADANIGREEN.NS",
@@ -280,9 +241,6 @@ STOCKS = [
     "TATACHEM.NS",
     "TATASTEEL.NS",
 
-    # =========================
-    # OTHER POPULAR STOCKS
-    # =========================
     "INDIANB.NS",
     "RBLBANK.NS",
     "IDBI.NS",
