@@ -8,9 +8,7 @@
 
 int main()
 {
-    // ============================================
-    // 1. Load stock data
-    // ============================================
+
 
     std::vector<PriceData> data =
         loadStockData("data/stocks.csv");
@@ -20,9 +18,7 @@ int main()
               << "\n\n";
 
 
-    // ============================================
-    // 2. Extract TCS closing prices
-    // ============================================
+ 
 
     std::vector<double> prices;
 
@@ -39,9 +35,7 @@ int main()
               << "\n\n";
 
 
-    // ============================================
-    // 3. Create first 30-day window
-    // ============================================
+  
 
     const std::size_t WINDOW_SIZE = 30;
 
@@ -61,9 +55,7 @@ int main()
               << "\n\n";
 
 
-    // ============================================
-    // 4. Print original window
-    // ============================================
+
 
     std::cout << "Original 30-day window:\n";
 
@@ -78,9 +70,7 @@ int main()
     std::cout << "\n";
 
 
-    // ============================================
-    // 5. Normalize
-    // ============================================
+  
 
     std::vector<double> normalized =
         normalizeWindow(window);
@@ -98,9 +88,7 @@ int main()
     std::cout << "\n";
 
 
-    // ============================================
-    // 6. Compute FFT
-    // ============================================
+  
 
     std::cout << "Computing FFT...\n\n";
 
@@ -108,17 +96,13 @@ int main()
         computeFFT(normalized);
 
 
-    // ============================================
-    // 7. Compute FFT magnitudes
-    // ============================================
+ 
 
     std::vector<double> magnitude =
         computeMagnitude(fftResult);
 
 
-    // ============================================
-    // 8. Print FFT output
-    // ============================================
+
 
     std::cout << "FFT size: "
               << fftResult.size()
@@ -138,9 +122,7 @@ int main()
     std::cout << "\n";
 
 
-    // ============================================
-    // 9. Print complex FFT values
-    // ============================================
+
 
     std::cout << "Complex FFT values:\n";
 
