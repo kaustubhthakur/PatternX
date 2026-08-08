@@ -23,6 +23,13 @@ output - percentage , window date
 - fft
     Xk​=∑n=0N−1​xn​e−i2πkn/N
 
+    FFT converts the normalized stock-price data from the time domain to the frequency domain. It decomposes a price pattern into different frequency components, where low frequencies represent broader trends and higher frequencies represent faster fluctuations.
+
+    Cooley–Tukey FFT algorithm to efficiently generate the frequency spectrum. The magnitude of each frequency component represents its strength, producing a frequency-domain signature that can later be used to compare historical stock-price patterns.
+
+    
+    
+
 
 
 ------------------------------------------------------------------------------------ FLOW --------------------------------------------------------------------------
