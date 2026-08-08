@@ -1,0 +1,5 @@
+PatternX - Match Historical Stock pattern with current market data
+
+- user will input Stock and Window(15,30,60,90) days (input)
+- algorithm will output the similar pattern which happens from last 10-15 years data and its match percentage
+- FFT,Sliding window 
