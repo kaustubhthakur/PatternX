@@ -1,13 +1,12 @@
-#pragma once
+#ifndef SLIDING_WINDOW_HPP
+#define SLIDING_WINDOW_HPP
 
+#include <cstddef>
 #include <vector>
 
-struct Window {
-    int startIndex;
-    int endIndex;
-};
-
-std::vector<Window> createWindows(
+std::vector<std::vector<double>> createWindows(
     const std::vector<double>& prices,
-    int windowSize
+    std::size_t windowSize
 );
+
+#endif

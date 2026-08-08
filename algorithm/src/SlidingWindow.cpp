@@ -1,22 +1,38 @@
-#include "SlidingWindow.hpp"
+#include "../include/SlidingWindow.hpp"
 
-std::vector<Window> createWindows(
+std::vector<std::vector<double>> createWindows(
     const std::vector<double>& prices,
-    int windowSize
-) {
-    std::vector<Window> windows;
+    std::size_t windowSize
+)
+{
+    std::vector<std::vector<double>> windows;
 
-    int dataSize = prices.size();
-
-    if (dataSize == 0 || windowSize <= 0 || windowSize > dataSize) {
+    // Invalid window
+    if (windowSize == 0 || windowSize > prices.size()) {
         return windows;
     }
 
-    for (int i = 0; i + windowSize <= dataSize; ++i) {
-        windows.push_back({
-            i,
-            i + windowSize - 1
-        });
+    std::size_t totalWindows =
+        prices.size() - windowSize + 1;
+
+    windows.reserve(totalWindows);
+
+    for (std::size_t start = 0;
+         start < totalWindows;
+         ++start)
+    {
+        std::vector<double> window;
+
+        window.reserve(windowSize);
+
+        for (std::size_t i = 0;
+             i < windowSize;
+             ++i)
+        {
+            window.push_back(prices[start + i]);
+        }
+
+        windows.push_back(window);
     }
 
     return windows;
