@@ -1,47 +1,38 @@
 #include <iostream>
-#include <vector>
-#include "SlidingWindow.hpp"
 
-using namespace std;
+#include "../include/StockData.hpp"
 
-int main() {
+int main()
+{
+    std::vector<PriceData> data =
+        loadStockData("data/stocks.csv");
 
-    vector<double> prices = {
-        100,
-        105,
-        103,
-        108,
-        110,
-        107,
-        112,
-        115,
-        113,
-        118
-    };
+    std::cout << "Total rows: "
+              << data.size()
+              << "\n\n";
 
-    int windowSize = 3;
+    std::vector<PriceData> tcs =
+        getStock(data, "TCS");
 
-    vector<Window> windows =
-        createWindows(prices, windowSize);
+    std::cout << "TCS rows: "
+              << tcs.size()
+              << "\n\n";
 
-    cout << "Total data points: "
-         << prices.size() << "\n";
+    if (!tcs.empty()) {
 
-    cout << "Window size: "
-         << windowSize << "\n";
+        std::cout << "First TCS record:\n";
 
-    cout << "Total windows: "
-         << windows.size() << "\n\n";
+        std::cout << "Date: "
+                  << tcs[0].date
+                  << "\n";
 
-    for (const Window& window : windows) {
+        std::cout << "Close: "
+                  << tcs[0].close
+                  << "\n";
 
-        cout << "Start: "
-             << window.startIndex
-
-             << " | End: "
-             << window.endIndex
-
-             << "\n";
+        std::cout << "Volume: "
+                  << tcs[0].volume
+                  << "\n";
     }
 
     return 0;
