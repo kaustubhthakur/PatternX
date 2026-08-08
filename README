@@ -1,5 +1,17 @@
 PatternX - Match Historical Stock pattern with current market data
 
 - user will input Stock and Window(15,30,60,90) days (input)
-- algorithm will output the similar pattern which happens from last 10-15 years data and its match percentage
+- algorithm will output the similar pattern which happens from last 10-15 years data and its match percentage and year (eg. 96.4% match , 2018)
 - FFT,Sliding window 
+
+
+
+E.g
+
+input 
+- NVIDIA
+- 30 DAYS
+
+
+output - percentage , window date
+         96.4% , 2018(oct-1 to oct 30)
