@@ -16,9 +16,16 @@ struct PriceData {
     long long volume;
 };
 
-std::vector<PriceData> loadStockData(const std::string& filename);
+std::vector<PriceData> loadStockData(
+    const std::string& filename
+);
 
 std::vector<PriceData> getStock(
+    const std::vector<PriceData>& data,
+    const std::string& symbol
+);
+
+std::vector<double> getClosePrices(
     const std::vector<PriceData>& data,
     const std::string& symbol
 );

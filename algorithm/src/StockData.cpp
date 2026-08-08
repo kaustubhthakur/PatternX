@@ -4,7 +4,9 @@
 #include <sstream>
 #include <iostream>
 
-std::vector<PriceData> loadStockData(const std::string& filename)
+std::vector<PriceData> loadStockData(
+    const std::string& filename
+)
 {
     std::vector<PriceData> data;
 
@@ -19,7 +21,7 @@ std::vector<PriceData> loadStockData(const std::string& filename)
 
     std::string line;
 
-    // Skip CSV header
+    // Skip header
     std::getline(file, line);
 
     while (std::getline(file, line)) {
@@ -76,4 +78,22 @@ std::vector<PriceData> getStock(
     }
 
     return result;
+}
+
+
+std::vector<double> getClosePrices(
+    const std::vector<PriceData>& data,
+    const std::string& symbol
+)
+{
+    std::vector<double> prices;
+
+    for (const PriceData& stock : data) {
+
+        if (stock.symbol == symbol) {
+            prices.push_back(stock.close);
+        }
+    }
+
+    return prices;
 }

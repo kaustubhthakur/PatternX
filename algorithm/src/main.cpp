@@ -1,15 +1,19 @@
 #include <iostream>
+#include <vector>
 
 #include "../include/StockData.hpp"
 
 int main()
 {
+
     std::vector<PriceData> data =
         loadStockData("data/stocks.csv");
 
     std::cout << "Total rows: "
               << data.size()
               << "\n\n";
+
+
 
     std::vector<PriceData> tcs =
         getStock(data, "TCS");
@@ -18,22 +22,22 @@ int main()
               << tcs.size()
               << "\n\n";
 
-    if (!tcs.empty()) {
 
-        std::cout << "First TCS record:\n";
 
-        std::cout << "Date: "
-                  << tcs[0].date
-                  << "\n";
+    std::vector<double> prices =
+        getClosePrices(data, "TCS");
 
-        std::cout << "Close: "
-                  << tcs[0].close
-                  << "\n";
+    std::cout << "TCS closing prices: "
+              << prices.size()
+              << "\n\n";
 
-        std::cout << "Volume: "
-                  << tcs[0].volume
-                  << "\n";
+
+    std::cout << "First 5 closing prices:\n";
+
+    for (size_t i = 0; i < 5 && i < prices.size(); i++){
+        std::cout << prices[i] << "\n";
     }
+
 
     return 0;
 }
