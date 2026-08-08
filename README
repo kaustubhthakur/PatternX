@@ -19,4 +19,4 @@ output - percentage , window date
 
 - sliding window 
 - normalize 
-    dxx = (dx-dy)/dy
+    dxx = (dx-dy)/dy 

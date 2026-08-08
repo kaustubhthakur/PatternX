@@ -3,10 +3,11 @@
 
 #include "../include/StockData.hpp"
 #include "../include/SlidingWindow.hpp"
+#include "../include/Normalizer.hpp"
 
 int main()
 {
-    
+    // Load all stock data
     std::vector<PriceData> data =
         loadStockData("data/stocks.csv");
 
@@ -15,7 +16,7 @@ int main()
               << "\n\n";
 
 
-
+    // Get TCS data
     std::vector<PriceData> tcs =
         getStock(data, "TCS");
 
@@ -24,7 +25,7 @@ int main()
               << "\n\n";
 
 
-   
+    // Get TCS closing prices
     std::vector<double> prices =
         getClosePrices(data, "TCS");
 
@@ -33,7 +34,7 @@ int main()
               << "\n\n";
 
 
-
+    // Print first 5 prices
     std::cout << "First 5 closing prices:\n";
 
     for (std::size_t i = 0;
@@ -44,7 +45,7 @@ int main()
     }
 
 
-
+    // Create sliding windows
     std::size_t windowSize = 30;
 
     std::vector<std::vector<double>> windows =
@@ -60,12 +61,27 @@ int main()
               << "\n";
 
 
-    if (!windows.empty()) {
+    // Test normalizer
+    if (!windows.empty())
+    {
+        std::cout << "\nFirst window (original):\n";
 
-        std::cout << "\nFirst window:\n";
-
-        for (double price : windows[0]) {
+        for (double price : windows[0])
+        {
             std::cout << price << "\n";
+        }
+
+
+        // Normalize first window
+        std::vector<double> normalized =
+            normalizeWindow(windows[0]);
+
+
+        std::cout << "\nFirst window (normalized):\n";
+
+        for (double value : normalized)
+        {
+            std::cout << value << "\n";
         }
     }
 
