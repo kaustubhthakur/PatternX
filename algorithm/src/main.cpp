@@ -2,43 +2,19 @@
 #include <vector>
 #include <complex>
 #include <iomanip>
-#include <cmath>
 
 #include "../include/StockData.hpp"
 #include "../include/Normalizer.hpp"
 #include "../include/FFT.hpp"
 #include "../include/PatternMatcher.hpp"
-
-double calculateFutureReturn(
-    const std::vector<double>& prices,
-    std::size_t windowIndex,
-    std::size_t windowSize,
-    std::size_t futureDays
-)
-{
-    // Last price of the historical matched window
-    std::size_t endIndex =
-        windowIndex + windowSize - 1;
-
-    // Price after futureDays
-    std::size_t futureIndex =
-        endIndex + futureDays;
-
-    if (futureIndex >= prices.size())
-    {
-        return 0.0;
-    }
-
-    double currentPrice = prices[endIndex];
-    double futurePrice = prices[futureIndex];
-
-    return ((futurePrice - currentPrice) / currentPrice) * 100.0;
-}
+#include "../include/WeightedRanking.hpp"
 
 
 int main()
 {
-   
+    // =========================================================
+    // 1. Load stock data
+    // =========================================================
 
     std::vector<PriceData> data =
         loadStockData("data/stocks.csv");
@@ -48,7 +24,9 @@ int main()
               << "\n\n";
 
 
- 
+    // =========================================================
+    // 2. Extract TCS closing prices
+    // =========================================================
 
     std::vector<double> prices;
 
@@ -65,15 +43,12 @@ int main()
               << "\n\n";
 
 
-   
+    // =========================================================
+    // 3. Configuration
+    // =========================================================
 
     const std::size_t WINDOW_SIZE = 30;
     const std::size_t TOP_K = 10;
-
-    const std::size_t HORIZON_5 = 5;
-    const std::size_t HORIZON_10 = 10;
-    const std::size_t HORIZON_15 = 15;
-    const std::size_t HORIZON_30 = 30;
 
     if (prices.size() < WINDOW_SIZE)
     {
@@ -82,7 +57,9 @@ int main()
     }
 
 
-
+    // =========================================================
+    // 4. Sliding windows
+    // =========================================================
 
     const std::size_t totalWindows =
         prices.size() - WINDOW_SIZE + 1;
@@ -96,13 +73,13 @@ int main()
               << "\n\n";
 
 
-
+  
 
     const std::size_t currentIndex =
         totalWindows - 1;
 
 
-   
+
 
     std::vector<std::vector<double>> signatures;
 
@@ -112,7 +89,6 @@ int main()
          start < totalWindows;
          ++start)
     {
-      
         std::vector<double> window(
             prices.begin() + start,
             prices.begin() + start + WINDOW_SIZE
@@ -139,7 +115,6 @@ int main()
 
 
 
-
     const std::vector<double>& currentSignature =
         signatures[currentIndex];
 
@@ -153,6 +128,7 @@ int main()
 
 
 
+
     std::vector<std::vector<double>> historicalSignatures;
 
     std::vector<std::size_t> historicalIndices;
@@ -161,18 +137,6 @@ int main()
          i < currentIndex;
          ++i)
     {
-        std::size_t windowEnd =
-            i + WINDOW_SIZE - 1;
-
-        std::size_t future30Index =
-            windowEnd + HORIZON_30;
-
-     
-        if (future30Index >= prices.size())
-        {
-            continue;
-        }
-
         historicalSignatures.push_back(
             signatures[i]
         );
@@ -180,13 +144,12 @@ int main()
         historicalIndices.push_back(i);
     }
 
-
     std::cout << "Historical candidates: "
               << historicalSignatures.size()
               << "\n\n";
 
 
- 
+
 
     std::vector<PatternMatch> matches =
         findTopMatches(
@@ -196,6 +159,8 @@ int main()
         );
 
 
+  
+
     std::cout << "============================================\n";
     std::cout << "TOP "
               << TOP_K
@@ -203,13 +168,13 @@ int main()
     std::cout << "============================================\n\n";
 
     std::cout << std::fixed
-              << std::setprecision(4);
+              << std::setprecision(6);
 
+    std::vector<std::size_t> windowIndices;
+    std::vector<double> distances;
 
-    double totalReturn5 = 0.0;
-    double totalReturn10 = 0.0;
-    double totalReturn15 = 0.0;
-    double totalReturn30 = 0.0;
+    windowIndices.reserve(matches.size());
+    distances.reserve(matches.size());
 
     for (std::size_t rank = 0;
          rank < matches.size();
@@ -218,149 +183,113 @@ int main()
         const PatternMatch& match =
             matches[rank];
 
-       
-        std::size_t originalWindowIndex =
+        std::size_t originalIndex =
             historicalIndices[match.windowIndex];
 
-
-       
-        double return5 =
-            calculateFutureReturn(
-                prices,
-                originalWindowIndex,
-                WINDOW_SIZE,
-                HORIZON_5
-            );
-
-        double return10 =
-            calculateFutureReturn(
-                prices,
-                originalWindowIndex,
-                WINDOW_SIZE,
-                HORIZON_10
-            );
-
-        double return15 =
-            calculateFutureReturn(
-                prices,
-                originalWindowIndex,
-                WINDOW_SIZE,
-                HORIZON_15
-            );
-
-        double return30 =
-            calculateFutureReturn(
-                prices,
-                originalWindowIndex,
-                WINDOW_SIZE,
-                HORIZON_30
-            );
-
-
-        totalReturn5 += return5;
-        totalReturn10 += return10;
-        totalReturn15 += return15;
-        totalReturn30 += return30;
-
-
-
+        windowIndices.push_back(originalIndex);
+        distances.push_back(match.distance);
 
         std::cout << "Rank "
                   << rank + 1
                   << "\n";
 
         std::cout << "Window index : "
-                  << originalWindowIndex
+                  << originalIndex
                   << "\n";
 
         std::cout << "Start day    : "
-                  << originalWindowIndex
+                  << originalIndex
                   << "\n";
 
         std::cout << "End day      : "
-                  << originalWindowIndex + WINDOW_SIZE - 1
+                  << originalIndex + WINDOW_SIZE - 1
                   << "\n";
 
         std::cout << "Distance     : "
                   << match.distance
                   << "\n";
 
+        std::cout << "--------------------------------------------\n";
+    }
 
-    
 
-        std::size_t endIndex =
-            originalWindowIndex + WINDOW_SIZE - 1;
+ 
 
-        std::cout << "End price    : ₹"
-                  << prices[endIndex]
+    std::vector<WeightedMatch> weightedMatches =
+        calculateWeights(
+            windowIndices,
+            distances
+        );
+
+
+  
+
+    std::cout << "\n";
+    std::cout << "============================================\n";
+    std::cout << "WEIGHTED MATCH RANKING\n";
+    std::cout << "============================================\n\n";
+
+    double weightSum = 0.0;
+
+    for (std::size_t rank = 0;
+         rank < weightedMatches.size();
+         ++rank)
+    {
+        const WeightedMatch& match =
+            weightedMatches[rank];
+
+        weightSum += match.normalizedWeight;
+
+        std::cout << "Rank "
+                  << rank + 1
                   << "\n";
 
+        std::cout << "Window index : "
+                  << match.windowIndex
+                  << "\n";
 
+        std::cout << "Distance     : "
+                  << match.distance
+                  << "\n";
 
-        std::cout << "\nFuture Returns:\n";
+        std::cout << "Raw weight   : "
+                  << match.weight
+                  << "\n";
 
-        std::cout << "+5 days      : "
-                  << return5
-                  << "%\n";
+        std::cout << "Normalized   : "
+                  << match.normalizedWeight
+                  << "\n";
 
-        std::cout << "+10 days     : "
-                  << return10
-                  << "%\n";
-
-        std::cout << "+15 days     : "
-                  << return15
-                  << "%\n";
-
-        std::cout << "+30 days     : "
-                  << return30
+        std::cout << "Weight %     : "
+                  << match.normalizedWeight * 100.0
                   << "%\n";
 
         std::cout << "--------------------------------------------\n";
     }
 
 
+  
 
-    if (!matches.empty())
+    std::cout << "\n";
+    std::cout << "============================================\n";
+    std::cout << "WEIGHT VERIFICATION\n";
+    std::cout << "============================================\n\n";
+
+    std::cout << "Total normalized weight: "
+              << weightSum
+              << "\n";
+
+    if (std::abs(weightSum - 1.0) < 1e-6)
     {
-        double count =
-            static_cast<double>(matches.size());
-
-        double average5 =
-            totalReturn5 / count;
-
-        double average10 =
-            totalReturn10 / count;
-
-        double average15 =
-            totalReturn15 / count;
-
-        double average30 =
-            totalReturn30 / count;
-
-
-        std::cout << "\n";
-        std::cout << "============================================\n";
-        std::cout << "AVERAGE FUTURE RETURNS\n";
-        std::cout << "============================================\n";
-
-        std::cout << "+5 days      : "
-                  << average5
-                  << "%\n";
-
-        std::cout << "+10 days     : "
-                  << average10
-                  << "%\n";
-
-        std::cout << "+15 days     : "
-                  << average15
-                  << "%\n";
-
-        std::cout << "+30 days     : "
-                  << average30
-                  << "%\n";
+        std::cout << "Weight test: PASSED\n";
+    }
+    else
+    {
+        std::cout << "Weight test: FAILED\n";
     }
 
 
+  
 
     std::vector<double> currentWindow(
         prices.begin() + currentIndex,
@@ -382,7 +311,7 @@ int main()
 
 
     std::cout << "\n";
-    std::cout << "Pattern matching + future analysis "
+    std::cout << "Weighted ranking test "
               << "completed successfully.\n";
 
     return 0;
