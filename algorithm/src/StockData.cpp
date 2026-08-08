@@ -21,7 +21,7 @@ std::vector<PriceData> loadStockData(
 
     std::string line;
 
-    // Skip header
+   
     std::getline(file, line);
 
     while (std::getline(file, line)) {

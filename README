@@ -27,6 +27,19 @@ output - percentage , window date
 
     Cooley–Tukey FFT algorithm to efficiently generate the frequency spectrum. The magnitude of each frequency component represents its strength, producing a frequency-domain signature that can later be used to compare historical stock-price patterns.
 
+- pattern matching 
+  Returnh(k)  ​= (​Price h+k​−Price h)​​/ Price h*100
+
+  It measures how much the stock price changed after the historical pattern.
+
+Where:
+
+Priceh = price at the end of the historical matched window
+Price
+h+k = price k days after that window
+k = future period, e.g. 5, 10, 15, or 30 days
+Return = percentage gain/loss
+
     
     
 
