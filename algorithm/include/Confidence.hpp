@@ -9,12 +9,8 @@
 struct HorizonConfidence
 {
     double confidence = 0.0;
-
     double positiveWeight = 0.0;
     double negativeWeight = 0.0;
-
-    // Weighted expected future return for this horizon, in percent.
-    double predictedReturn = 0.0;
 
     bool signal = false;
     bool predictedPositive = false;

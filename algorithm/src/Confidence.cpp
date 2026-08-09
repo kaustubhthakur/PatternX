@@ -17,23 +17,28 @@ HorizonConfidence calculateHorizonConfidence(
 {
     HorizonConfidence result{};
 
-    if (weightedMatches.empty())
+    if (weightedMatches.empty() ||
+        windowSize == 0)
     {
         return result;
     }
 
     double positiveWeight = 0.0;
     double negativeWeight = 0.0;
-    double predictedReturn = 0.0;
+
+    double positiveReturnWeight = 0.0;
+    double negativeReturnWeight = 0.0;
 
     for (const auto& match : weightedMatches)
     {
         const std::size_t historicalWindow =
             match.windowIndex;
 
-        /*
-            The historical window ends here.
-        */
+        if (historicalWindow >= prices.size())
+        {
+            continue;
+        }
+
         const std::size_t endIndex =
             historicalWindow + windowSize - 1;
 
@@ -62,27 +67,35 @@ HorizonConfidence calculateHorizonConfidence(
             prices[futureIndex];
 
         const double futureReturn =
-            ((futurePrice - currentPrice)
-             / currentPrice) * 100.0;
+            ((futurePrice - currentPrice) /
+             currentPrice) * 100.0;
 
-        /*
-            Weighted expected return.
-        */
-        predictedReturn +=
-            match.normalizedWeight * futureReturn;
+        const double weight =
+            match.normalizedWeight;
 
-        /*
-            Directional confidence.
-        */
         if (futureReturn > 0.0)
         {
-            positiveWeight +=
-                match.normalizedWeight;
+            positiveWeight += weight;
         }
         else if (futureReturn < 0.0)
         {
-            negativeWeight +=
-                match.normalizedWeight;
+            negativeWeight += weight;
+        }
+
+        /*
+            Expected-return-aware confidence.
+
+            Only returns whose magnitude reaches the minimum
+            meaningful threshold contribute to the directional
+            return buckets.
+        */
+        if (futureReturn >= minimumExpectedReturn)
+        {
+            positiveReturnWeight += weight;
+        }
+        else if (futureReturn <= -minimumExpectedReturn)
+        {
+            negativeReturnWeight += weight;
         }
     }
 
@@ -94,10 +107,6 @@ HorizonConfidence calculateHorizonConfidence(
         return result;
     }
 
-    /*
-        Normalize again because some historical candidates
-        may have been skipped due to unavailable future data.
-    */
     positiveWeight /=
         totalDirectionalWeight;
 
@@ -110,11 +119,9 @@ HorizonConfidence calculateHorizonConfidence(
     result.negativeWeight =
         negativeWeight;
 
-    result.predictedReturn =
-        predictedReturn;
-
     /*
-        Confidence = weight of the majority direction.
+        Base confidence is the weight of the majority
+        direction.
     */
     result.confidence =
         std::max(
@@ -126,26 +133,50 @@ HorizonConfidence calculateHorizonConfidence(
         positiveWeight >= negativeWeight;
 
     /*
-        Signal now requires BOTH:
-          1. sufficient directional confidence
-          2. sufficient expected return magnitude
-
-        Example:
-          confidence = 75%
-          predicted return = +0.10%
-          minimum expected return = 0.50%
-          => NO SIGNAL
+        If there is meaningful-return evidence available,
+        use it to prevent tiny positive/negative moves from
+        creating an overly strong signal.
     */
+    const double meaningfulTotal =
+        positiveReturnWeight +
+        negativeReturnWeight;
+
+    if (meaningfulTotal > 0.0)
+    {
+        positiveReturnWeight /=
+            meaningfulTotal;
+
+        negativeReturnWeight /=
+            meaningfulTotal;
+
+        const double meaningfulConfidence =
+            std::max(
+                positiveReturnWeight,
+                negativeReturnWeight
+            );
+
+        /*
+            Combine the ordinary directional agreement with
+            meaningful-return agreement.
+        */
+        result.confidence =
+            std::min(
+                result.confidence,
+                meaningfulConfidence
+            );
+
+        result.predictedPositive =
+            positiveReturnWeight >=
+            negativeReturnWeight;
+    }
+
     result.signal =
-        result.confidence >= threshold &&
-        std::abs(result.predictedReturn) >=
-            minimumExpectedReturn;
+        result.confidence >= threshold;
 
     return result;
 }
 
 } // namespace
-
 
 ConfidenceResult calculateConfidence(
     const std::vector<double>& prices,
