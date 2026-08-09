@@ -8,9 +8,6 @@ struct BacktestMetrics
 {
     std::size_t samples = 0;
 
-    // ============================================================
-    // Existing directional prediction metrics
-    // ============================================================
 
     double directionalAccuracy5 = 0.0;
     double directionalAccuracy10 = 0.0;
@@ -38,10 +35,6 @@ struct BacktestMetrics
     double zScore30 = 0.0;
 
 
-    // ============================================================
-    // Confidence-filter statistics
-    // ============================================================
-
     double confidenceThreshold = 0.0;
 
     std::size_t signals5 = 0;
@@ -64,10 +57,6 @@ struct BacktestMetrics
     double averageReturnWhenSignaled15 = 0.0;
     double averageReturnWhenSignaled30 = 0.0;
 
-
-    // ============================================================
-    // Trading performance metrics
-    // ============================================================
 
     double totalReturn5 = 0.0;
     double totalReturn10 = 0.0;
@@ -96,9 +85,6 @@ struct BacktestMetrics
 };
 
 
-// ============================================================
-// Existing backtest
-// ============================================================
 
 BacktestMetrics runBacktest(
     const std::vector<double>& prices,
@@ -108,9 +94,6 @@ BacktestMetrics runBacktest(
 );
 
 
-// ============================================================
-// Confidence walk-forward backtest
-// ============================================================
 
 BacktestMetrics runConfidenceBacktest(
     const std::vector<double>& prices,
