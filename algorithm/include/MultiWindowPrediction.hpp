@@ -1,3 +1,4 @@
+
 #ifndef MULTI_WINDOW_PREDICTION_HPP
 #define MULTI_WINDOW_PREDICTION_HPP
 
@@ -21,3 +22,4 @@ MultiWindowPrediction calculateMultiWindowPrediction(
 );
 
 #endif
+
