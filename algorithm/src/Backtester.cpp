@@ -44,6 +44,63 @@ double calculateReturn(
 }
 
 
+
+double calculateTrailingReturn(
+    const std::vector<double>& prices,
+    std::size_t priceIndex,
+    std::size_t days
+)
+{
+    if (priceIndex < days)
+    {
+        return 0.0;
+    }
+
+    std::size_t pastIndex =
+        priceIndex - days;
+
+    double pastPrice =
+        prices[pastIndex];
+
+    double currentPrice =
+        prices[priceIndex];
+
+    if (pastPrice == 0.0)
+    {
+        return 0.0;
+    }
+
+    return ((currentPrice - pastPrice) /
+            pastPrice) * 100.0;
+}
+
+
+
+double calculateZScore(
+    double accuracyPercent,
+    std::size_t n
+)
+{
+    if (n == 0)
+    {
+        return 0.0;
+    }
+
+    double observed =
+        accuracyPercent / 100.0;
+
+    double standardError =
+        std::sqrt(0.25 / static_cast<double>(n));
+
+    if (standardError == 0.0)
+    {
+        return 0.0;
+    }
+
+    return (observed - 0.5) / standardError;
+}
+
+
 double calculateWeightedPrediction(
     const std::vector<double>& prices,
     std::size_t currentIndex,
@@ -52,9 +109,7 @@ double calculateWeightedPrediction(
     std::size_t horizon
 )
 {
-    /*
-        Generate FFT signatures and raw price windows.
-    */
+  
 
     std::vector<std::vector<double>> signatures;
     std::vector<std::vector<double>> windows;
@@ -82,8 +137,7 @@ double calculateWeightedPrediction(
 
         signatures.push_back(magnitude);
 
-        // Raw (un-normalized) window, needed for
-        // trend-distance comparisons.
+    
         windows.push_back(window);
     }
 
@@ -94,12 +148,7 @@ double calculateWeightedPrediction(
         windows[currentIndex];
 
 
-    /*
-        Historical candidates.
-
-        Only use patterns whose future return
-        was already known before currentIndex.
-    */
+ 
 
     std::vector<std::vector<double>>
         historicalSignatures;
@@ -144,20 +193,6 @@ double calculateWeightedPrediction(
 
     /*
         Find similar historical patterns.
-
-        currentIndex is passed through so that
-        findTopMatches can also exclude candidates
-        that are within `windowSize` of the query
-        window itself, on top of the look-ahead
-        filtering already done above. This prevents
-        near-duplicate/autocorrelated windows (e.g.
-        the window immediately preceding currentIndex)
-        from dominating the match set.
-
-        Final argument = minimum separation.
-
-        We use windowSize so that highly overlapping
-        historical patterns are not selected together.
     */
 
     std::vector<PatternMatch> matches =
@@ -177,10 +212,7 @@ double calculateWeightedPrediction(
     }
 
 
-    /*
-        Convert local match indices into
-        original price-series indices.
-    */
+  
 
     std::vector<std::size_t> windowIndices;
     std::vector<double> distances;
@@ -280,11 +312,19 @@ BacktestMetrics runBacktest(
     std::size_t correct15 = 0;
     std::size_t correct30 = 0;
 
+  
+    std::size_t actualPositive5 = 0;
+    std::size_t actualPositive10 = 0;
+    std::size_t actualPositive15 = 0;
+    std::size_t actualPositive30 = 0;
 
-    /*
-        Start far enough into history so that
-        candidate patterns have known outcomes.
-    */
+    std::size_t naiveCorrect5 = 0;
+    std::size_t naiveCorrect10 = 0;
+    std::size_t naiveCorrect15 = 0;
+    std::size_t naiveCorrect30 = 0;
+
+
+  
 
     const std::size_t MIN_HISTORY =
         windowSize + 30 + 10;
@@ -294,9 +334,6 @@ BacktestMetrics runBacktest(
          currentIndex + 30 < prices.size();
          currentIndex += step)
     {
-        /*
-            PREDICTIONS
-        */
 
         double prediction5 =
             calculateWeightedPrediction(
@@ -335,9 +372,6 @@ BacktestMetrics runBacktest(
             );
 
 
-        /*
-            ACTUAL FUTURE RETURNS
-        */
 
         std::size_t currentPriceIndex =
             currentIndex + windowSize - 1;
@@ -371,6 +405,16 @@ BacktestMetrics runBacktest(
             );
 
 
+    
+
+        double trailingReturn =
+            calculateTrailingReturn(
+                prices,
+                currentPriceIndex,
+                5
+            );
+
+
         /*
             MAE
         */
@@ -396,9 +440,7 @@ BacktestMetrics runBacktest(
             );
 
 
-        /*
-            DIRECTIONAL ACCURACY
-        */
+      
 
         if (
             (prediction5 >= 0.0 &&
@@ -441,12 +483,58 @@ BacktestMetrics runBacktest(
         }
 
 
+
+        if (
+            (trailingReturn >= 0.0 &&
+             actual5 >= 0.0) ||
+            (trailingReturn < 0.0 &&
+             actual5 < 0.0)
+        )
+        {
+            ++naiveCorrect5;
+        }
+
+        if (
+            (trailingReturn >= 0.0 &&
+             actual10 >= 0.0) ||
+            (trailingReturn < 0.0 &&
+             actual10 < 0.0)
+        )
+        {
+            ++naiveCorrect10;
+        }
+
+        if (
+            (trailingReturn >= 0.0 &&
+             actual15 >= 0.0) ||
+            (trailingReturn < 0.0 &&
+             actual15 < 0.0)
+        )
+        {
+            ++naiveCorrect15;
+        }
+
+        if (
+            (trailingReturn >= 0.0 &&
+             actual30 >= 0.0) ||
+            (trailingReturn < 0.0 &&
+             actual30 < 0.0)
+        )
+        {
+            ++naiveCorrect30;
+        }
+
+
+
+        if (actual5 >= 0.0)  ++actualPositive5;
+        if (actual10 >= 0.0) ++actualPositive10;
+        if (actual15 >= 0.0) ++actualPositive15;
+        if (actual30 >= 0.0) ++actualPositive30;
+
+
         ++metrics.samples;
 
 
-        /*
-            Print first 5 samples.
-        */
 
         if (metrics.samples <= 5)
         {
@@ -513,9 +601,7 @@ BacktestMetrics runBacktest(
         metrics.samples;
 
 
-    /*
-        FINAL DIRECTIONAL ACCURACY
-    */
+   
 
     metrics.directionalAccuracy5 =
         (static_cast<double>(correct5) /
@@ -532,6 +618,72 @@ BacktestMetrics runBacktest(
     metrics.directionalAccuracy30 =
         (static_cast<double>(correct30) /
          metrics.samples) * 100.0;
+
+
+
+    metrics.baseRatePositive5 =
+        (static_cast<double>(actualPositive5) /
+         metrics.samples) * 100.0;
+
+    metrics.baseRatePositive10 =
+        (static_cast<double>(actualPositive10) /
+         metrics.samples) * 100.0;
+
+    metrics.baseRatePositive15 =
+        (static_cast<double>(actualPositive15) /
+         metrics.samples) * 100.0;
+
+    metrics.baseRatePositive30 =
+        (static_cast<double>(actualPositive30) /
+         metrics.samples) * 100.0;
+
+
+  
+
+    metrics.naiveAccuracy5 =
+        (static_cast<double>(naiveCorrect5) /
+         metrics.samples) * 100.0;
+
+    metrics.naiveAccuracy10 =
+        (static_cast<double>(naiveCorrect10) /
+         metrics.samples) * 100.0;
+
+    metrics.naiveAccuracy15 =
+        (static_cast<double>(naiveCorrect15) /
+         metrics.samples) * 100.0;
+
+    metrics.naiveAccuracy30 =
+        (static_cast<double>(naiveCorrect30) /
+         metrics.samples) * 100.0;
+
+
+    /*
+        SIGNIFICANCE (z-scores vs 50% random baseline)
+    */
+
+    metrics.zScore5 =
+        calculateZScore(
+            metrics.directionalAccuracy5,
+            metrics.samples
+        );
+
+    metrics.zScore10 =
+        calculateZScore(
+            metrics.directionalAccuracy10,
+            metrics.samples
+        );
+
+    metrics.zScore15 =
+        calculateZScore(
+            metrics.directionalAccuracy15,
+            metrics.samples
+        );
+
+    metrics.zScore30 =
+        calculateZScore(
+            metrics.directionalAccuracy30,
+            metrics.samples
+        );
 
 
     return metrics;

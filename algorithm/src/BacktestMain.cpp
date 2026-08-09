@@ -112,6 +112,76 @@ int main()
               << metrics.directionalAccuracy30
               << "%\n";
 
+
+
+    std::cout << "\n";
+    std::cout << "============================================\n";
+    std::cout << "VALIDATION\n";
+    std::cout << "============================================\n\n";
+
+    std::cout << "-- Base rate (% of actual returns that were positive) --\n";
+    std::cout << "If far from 50%, a model can beat 50% accuracy just by\n";
+    std::cout << "guessing the majority sign, without reading any pattern.\n\n";
+
+    std::cout << "Base rate +5 days  : "
+              << metrics.baseRatePositive5
+              << "%\n";
+
+    std::cout << "Base rate +10 days : "
+              << metrics.baseRatePositive10
+              << "%\n";
+
+    std::cout << "Base rate +15 days : "
+              << metrics.baseRatePositive15
+              << "%\n";
+
+    std::cout << "Base rate +30 days : "
+              << metrics.baseRatePositive30
+              << "%\n";
+
+    std::cout << "\n";
+    std::cout << "-- Naive baseline (guess same sign as trailing 5-day return) --\n";
+    std::cout << "If this matches or beats the model, FFT matching isn't\n";
+    std::cout << "adding value over a much simpler momentum rule.\n\n";
+
+    std::cout << "Naive accuracy +5 days  : "
+              << metrics.naiveAccuracy5
+              << "%\n";
+
+    std::cout << "Naive accuracy +10 days : "
+              << metrics.naiveAccuracy10
+              << "%\n";
+
+    std::cout << "Naive accuracy +15 days : "
+              << metrics.naiveAccuracy15
+              << "%\n";
+
+    std::cout << "Naive accuracy +30 days : "
+              << metrics.naiveAccuracy30
+              << "%\n";
+
+    std::cout << "\n";
+    std::cout << "-- Significance (z-score vs 50% random baseline) --\n";
+    std::cout << "|z| > 1.96 is roughly 95% significance IF samples were\n";
+    std::cout << "independent. These backtest windows overlap, so treat\n";
+    std::cout << "this as an optimistic upper bound, not a guarantee.\n\n";
+
+    std::cout << "Z-score +5 days  : "
+              << metrics.zScore5
+              << "\n";
+
+    std::cout << "Z-score +10 days : "
+              << metrics.zScore10
+              << "\n";
+
+    std::cout << "Z-score +15 days : "
+              << metrics.zScore15
+              << "\n";
+
+    std::cout << "Z-score +30 days : "
+              << metrics.zScore30
+              << "\n";
+
     std::cout << "\n";
     std::cout << "============================================\n";
     std::cout << "BACKTEST COMPLETED SUCCESSFULLY\n";
