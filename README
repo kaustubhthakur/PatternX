@@ -131,3 +131,36 @@ This is a research/learning project, not a validated trading strategy. Specifica
 - **No transaction costs, slippage, or position sizing** — even a confirmed statistical edge doesn't automatically survive real trading frictions.
 - **FFT magnitude is phase-blind.** Trend distance was added to partly compensate, but a shape-and-order-preserving distance measure (e.g. DTW on raw or return-sequence data) would likely be a stronger foundation than magnitude spectra alone.
 
+
+
+                    Historical data
+                          │
+                          ▼
+                    Normalize
+                          │
+                          ▼
+                         FFT
+                          │
+                          ▼
+                   Pattern matching
+                          │
+                          ▼
+                       Top-K
+                          │
+                          ▼
+                 Distance weighting
+                          │
+              ┌───────────┴───────────┐
+              ▼                       ▼
+       Weighted prediction       Historical outcomes
+              │                       │
+              │                       ▼
+              │                Positive/negative
+              │                  weight split
+              │                       │
+              │                       ▼
+              │                  Confidence
+              │                       │
+              └───────────┬───────────┘
+                          ▼
+                    SIGNAL / NO SIGNAL
