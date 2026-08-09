@@ -2173,12 +2173,6 @@ BacktestMetrics runConfidenceBacktest(
             signals30
         );
 
-    /*
-    ========================================================
-    FINAL REPORT
-    ========================================================
-    */
-
     std::cout
         << "\n============================================\n"
         << "CONFIDENCE BACKTEST RESULTS\n"
