@@ -6,7 +6,6 @@
 
 #include "WeightedRanking.hpp"
 
-
 struct HorizonConfidence
 {
     double confidence = 0.0;
@@ -14,10 +13,12 @@ struct HorizonConfidence
     double positiveWeight = 0.0;
     double negativeWeight = 0.0;
 
+    // Weighted expected future return for this horizon, in percent.
+    double predictedReturn = 0.0;
+
     bool signal = false;
     bool predictedPositive = false;
 };
-
 
 struct ConfidenceResult
 {
@@ -27,12 +28,12 @@ struct ConfidenceResult
     HorizonConfidence confidence30;
 };
 
-
 ConfidenceResult calculateConfidence(
     const std::vector<double>& prices,
     const std::vector<WeightedMatch>& weightedMatches,
     std::size_t windowSize,
-    double threshold
+    double threshold,
+    double minimumExpectedReturn = 0.50
 );
 
 #endif

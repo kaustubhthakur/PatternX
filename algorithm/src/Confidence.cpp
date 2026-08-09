@@ -1,8 +1,7 @@
 #include "../include/Confidence.hpp"
 
 #include <algorithm>
-#include <cstddef>
-
+#include <cmath>
 
 namespace
 {
@@ -12,7 +11,8 @@ HorizonConfidence calculateHorizonConfidence(
     const std::vector<WeightedMatch>& weightedMatches,
     std::size_t windowSize,
     std::size_t horizon,
-    double threshold
+    double threshold,
+    double minimumExpectedReturn
 )
 {
     HorizonConfidence result{};
@@ -22,75 +22,58 @@ HorizonConfidence calculateHorizonConfidence(
         return result;
     }
 
-
     double positiveWeight = 0.0;
     double negativeWeight = 0.0;
-
-
-    /*
-        Look at the future direction of every
-        historical matched pattern.
-
-        IMPORTANT:
-
-        This function does NOT use threshold to
-        calculate confidence.
-
-        Threshold is only used at the very end
-        to determine whether a signal exists.
-    */
+    double predictedReturn = 0.0;
 
     for (const auto& match : weightedMatches)
     {
         const std::size_t historicalWindow =
             match.windowIndex;
 
-
+        /*
+            The historical window ends here.
+        */
         const std::size_t endIndex =
-            historicalWindow +
-            windowSize -
-            1;
+            historicalWindow + windowSize - 1;
 
+        if (endIndex >= prices.size())
+        {
+            continue;
+        }
 
         const std::size_t futureIndex =
-            endIndex +
-            horizon;
-
-
-        /*
-            Historical future must exist.
-        */
+            endIndex + horizon;
 
         if (futureIndex >= prices.size())
         {
             continue;
         }
 
-
         const double currentPrice =
             prices[endIndex];
-
 
         if (currentPrice == 0.0)
         {
             continue;
         }
 
-
         const double futurePrice =
             prices[futureIndex];
 
-
         const double futureReturn =
-            (
-                (futurePrice - currentPrice)
-                /
-                currentPrice
-            )
-            *
-            100.0;
+            ((futurePrice - currentPrice)
+             / currentPrice) * 100.0;
 
+        /*
+            Weighted expected return.
+        */
+        predictedReturn +=
+            match.normalizedWeight * futureReturn;
 
+        /*
+            Directional confidence.
+        */
         if (futureReturn > 0.0)
         {
             positiveWeight +=
@@ -101,37 +84,25 @@ HorizonConfidence calculateHorizonConfidence(
             negativeWeight +=
                 match.normalizedWeight;
         }
-
-        /*
-            Zero return is intentionally ignored.
-
-            It provides no directional information.
-        */
     }
 
-
     const double totalDirectionalWeight =
-        positiveWeight +
-        negativeWeight;
-
+        positiveWeight + negativeWeight;
 
     if (totalDirectionalWeight <= 0.0)
     {
         return result;
     }
 
-
     /*
-        Re-normalize after ignoring zero-return
-        historical outcomes or invalid matches.
+        Normalize again because some historical candidates
+        may have been skipped due to unavailable future data.
     */
-
     positiveWeight /=
         totalDirectionalWeight;
 
     negativeWeight /=
         totalDirectionalWeight;
-
 
     result.positiveWeight =
         positiveWeight;
@@ -139,60 +110,52 @@ HorizonConfidence calculateHorizonConfidence(
     result.negativeWeight =
         negativeWeight;
 
+    result.predictedReturn =
+        predictedReturn;
 
     /*
-        Confidence is simply the weighted majority
-        direction.
-
-        Example:
-
-        positive = 0.72
-        negative = 0.28
-
-        confidence = 0.72
+        Confidence = weight of the majority direction.
     */
-
     result.confidence =
         std::max(
             positiveWeight,
             negativeWeight
         );
 
-
     result.predictedPositive =
-        positiveWeight >=
-        negativeWeight;
-
+        positiveWeight >= negativeWeight;
 
     /*
-        Threshold ONLY controls signal generation.
+        Signal now requires BOTH:
+          1. sufficient directional confidence
+          2. sufficient expected return magnitude
 
-        It does NOT affect confidence.
+        Example:
+          confidence = 75%
+          predicted return = +0.10%
+          minimum expected return = 0.50%
+          => NO SIGNAL
     */
-
     result.signal =
-        result.confidence >= threshold;
-
+        result.confidence >= threshold &&
+        std::abs(result.predictedReturn) >=
+            minimumExpectedReturn;
 
     return result;
 }
 
-}
+} // namespace
 
 
-/*
-    Calculate confidence independently for each
-    prediction horizon.
-*/
 ConfidenceResult calculateConfidence(
     const std::vector<double>& prices,
     const std::vector<WeightedMatch>& weightedMatches,
     std::size_t windowSize,
-    double threshold
+    double threshold,
+    double minimumExpectedReturn
 )
 {
     ConfidenceResult result{};
-
 
     result.confidence5 =
         calculateHorizonConfidence(
@@ -200,9 +163,9 @@ ConfidenceResult calculateConfidence(
             weightedMatches,
             windowSize,
             5,
-            threshold
+            threshold,
+            minimumExpectedReturn
         );
-
 
     result.confidence10 =
         calculateHorizonConfidence(
@@ -210,9 +173,9 @@ ConfidenceResult calculateConfidence(
             weightedMatches,
             windowSize,
             10,
-            threshold
+            threshold,
+            minimumExpectedReturn
         );
-
 
     result.confidence15 =
         calculateHorizonConfidence(
@@ -220,9 +183,9 @@ ConfidenceResult calculateConfidence(
             weightedMatches,
             windowSize,
             15,
-            threshold
+            threshold,
+            minimumExpectedReturn
         );
-
 
     result.confidence30 =
         calculateHorizonConfidence(
@@ -230,9 +193,9 @@ ConfidenceResult calculateConfidence(
             weightedMatches,
             windowSize,
             30,
-            threshold
+            threshold,
+            minimumExpectedReturn
         );
-
 
     return result;
 }
