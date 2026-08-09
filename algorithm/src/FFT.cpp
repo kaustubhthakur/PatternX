@@ -22,6 +22,36 @@ namespace
         return power;
     }
 
+
+    std::vector<double> applyHannWindow(
+        const std::vector<double>& input
+    )
+    {
+        const std::size_t n = input.size();
+
+        std::vector<double> windowed(n);
+
+        if (n <= 1)
+        {
+            return input;
+        }
+
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            double multiplier =
+                0.5 * (
+                    1.0 - std::cos(
+                        2.0 * PI * static_cast<double>(i) /
+                        static_cast<double>(n - 1)
+                    )
+                );
+
+            windowed[i] = input[i] * multiplier;
+        }
+
+        return windowed;
+    }
+
     void fft(std::vector<std::complex<double>>& a)
     {
         const std::size_t n = a.size();
@@ -90,23 +120,25 @@ computeFFT(const std::vector<double>& input)
         return {};
     }
 
-    
+    std::vector<double> windowedInput =
+        applyHannWindow(input);
+
     const std::size_t n =
-        nextPowerOfTwo(input.size());
+        nextPowerOfTwo(windowedInput.size());
 
     std::vector<std::complex<double>> result(n);
 
     
     for (std::size_t i = 0;
-         i < input.size();
+         i < windowedInput.size();
          ++i)
     {
         result[i] =
-            std::complex<double>(input[i], 0.0);
+            std::complex<double>(windowedInput[i], 0.0);
     }
 
   
-    for (std::size_t i = input.size();
+    for (std::size_t i = windowedInput.size();
          i < n;
          ++i)
     {
