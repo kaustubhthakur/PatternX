@@ -13,7 +13,10 @@
 
 int main()
 {
-   
+    // ============================================================
+    // LOAD STOCK DATA
+    // ============================================================
+
     std::vector<PriceData> data =
         loadStockData("data/stocks.csv");
 
@@ -22,7 +25,9 @@ int main()
               << "\n\n";
 
 
-
+    // ============================================================
+    // EXTRACT TCS CLOSING PRICES
+    // ============================================================
 
     std::vector<double> prices;
 
@@ -39,10 +44,16 @@ int main()
               << "\n\n";
 
 
-
+    // ============================================================
+    // CONFIGURATION
+    // ============================================================
 
     const std::size_t WINDOW_SIZE = 30;
     const std::size_t TOP_K = 10;
+
+    // Prevent highly overlapping historical patterns
+    const std::size_t MIN_SEPARATION = WINDOW_SIZE;
+
 
     if (prices.size() < WINDOW_SIZE)
     {
@@ -51,7 +62,9 @@ int main()
     }
 
 
-
+    // ============================================================
+    // TOTAL SLIDING WINDOWS
+    // ============================================================
 
     const std::size_t totalWindows =
         prices.size() - WINDOW_SIZE + 1;
@@ -60,21 +73,37 @@ int main()
               << WINDOW_SIZE
               << "\n";
 
+    std::cout << "Top K: "
+              << TOP_K
+              << "\n";
+
+    std::cout << "Minimum separation: "
+              << MIN_SEPARATION
+              << " days\n";
+
     std::cout << "Total windows: "
               << totalWindows
               << "\n\n";
 
 
-    // Last window = current market pattern
+    // ============================================================
+    // CURRENT WINDOW
+    // ============================================================
+
+    // Last window represents the current market pattern
     const std::size_t currentIndex =
         totalWindows - 1;
 
 
-
+    // ============================================================
+    // GENERATE FFT SIGNATURES + RAW PRICE WINDOWS
+    // ============================================================
 
     std::vector<std::vector<double>> signatures;
+    std::vector<std::vector<double>> windows;
 
     signatures.reserve(totalWindows);
+    windows.reserve(totalWindows);
 
     for (std::size_t start = 0;
          start < totalWindows;
@@ -85,19 +114,36 @@ int main()
             prices.begin() + start + WINDOW_SIZE
         );
 
+
+        // -----------------------------
         // Normalize
+        // -----------------------------
+
         std::vector<double> normalized =
             normalizeWindow(window);
 
+
+        // -----------------------------
         // FFT
+        // -----------------------------
+
         std::vector<std::complex<double>> fftResult =
             computeFFT(normalized);
 
-        // FFT magnitude
+
+        // -----------------------------
+        // FFT Magnitude
+        // -----------------------------
+
         std::vector<double> magnitude =
             computeMagnitude(fftResult);
 
+
         signatures.push_back(magnitude);
+
+        // Keep the raw (un-normalized) price window too,
+        // used for trend-distance comparisons.
+        windows.push_back(window);
     }
 
     std::cout << "FFT signatures generated: "
@@ -105,10 +151,15 @@ int main()
               << "\n\n";
 
 
-
+    // ============================================================
+    // CURRENT FFT SIGNATURE + CURRENT WINDOW
+    // ============================================================
 
     const std::vector<double>& currentSignature =
         signatures[currentIndex];
+
+    const std::vector<double>& currentWindow =
+        windows[currentIndex];
 
     std::cout << "Current window index: "
               << currentIndex
@@ -119,9 +170,12 @@ int main()
               << "\n\n";
 
 
-
+    // ============================================================
+    // HISTORICAL SIGNATURES + HISTORICAL WINDOWS
+    // ============================================================
 
     std::vector<std::vector<double>> historicalSignatures;
+    std::vector<std::vector<double>> historicalWindows;
     std::vector<std::size_t> historicalIndices;
 
     for (std::size_t i = 0;
@@ -132,6 +186,10 @@ int main()
             signatures[i]
         );
 
+        historicalWindows.push_back(
+            windows[i]
+        );
+
         historicalIndices.push_back(i);
     }
 
@@ -140,13 +198,19 @@ int main()
               << "\n\n";
 
 
-
+    // ============================================================
+    // FIND TOP HISTORICAL MATCHES
+    // ============================================================
 
     std::vector<PatternMatch> matches =
         findTopMatches(
             currentSignature,
             historicalSignatures,
-            TOP_K
+            currentWindow,
+            historicalWindows,
+            currentIndex,
+            TOP_K,
+            MIN_SEPARATION
         );
 
 
@@ -155,6 +219,7 @@ int main()
               << TOP_K
               << " HISTORICAL PATTERN MATCHES\n";
     std::cout << "============================================\n\n";
+
 
     std::cout << std::fixed
               << std::setprecision(6);
@@ -167,6 +232,10 @@ int main()
     distances.reserve(matches.size());
 
 
+    // ============================================================
+    // DISPLAY MATCHES
+    // ============================================================
+
     for (std::size_t rank = 0;
          rank < matches.size();
          ++rank)
@@ -174,11 +243,24 @@ int main()
         const PatternMatch& match =
             matches[rank];
 
+
+        // match.windowIndex already refers to the original
+        // window index (it's the raw index passed in via
+        // historicalSignatures/historicalWindows, not a
+        // local re-indexed position), since those vectors
+        // were built in the same order as historicalIndices.
         std::size_t originalIndex =
             historicalIndices[match.windowIndex];
 
-        windowIndices.push_back(originalIndex);
-        distances.push_back(match.distance);
+
+        windowIndices.push_back(
+            originalIndex
+        );
+
+        distances.push_back(
+            match.combinedDistance
+        );
+
 
         std::cout << "Rank "
                   << rank + 1
@@ -196,15 +278,25 @@ int main()
                   << originalIndex + WINDOW_SIZE - 1
                   << "\n";
 
-        std::cout << "Distance     : "
-                  << match.distance
+        std::cout << "FFT distance   : "
+                  << match.fftDistance
+                  << "\n";
+
+        std::cout << "Trend distance : "
+                  << match.trendDistance
+                  << "\n";
+
+        std::cout << "Combined dist. : "
+                  << match.combinedDistance
                   << "\n";
 
         std::cout << "--------------------------------------------\n";
     }
 
 
-
+    // ============================================================
+    // WEIGHTED RANKING
+    // ============================================================
 
     std::vector<WeightedMatch> weightedMatches =
         calculateWeights(
@@ -221,6 +313,7 @@ int main()
 
     double weightSum = 0.0;
 
+
     for (std::size_t rank = 0;
          rank < weightedMatches.size();
          ++rank)
@@ -228,7 +321,10 @@ int main()
         const WeightedMatch& match =
             weightedMatches[rank];
 
-        weightSum += match.normalizedWeight;
+
+        weightSum +=
+            match.normalizedWeight;
+
 
         std::cout << "Rank "
                   << rank + 1
@@ -258,7 +354,9 @@ int main()
     }
 
 
-
+    // ============================================================
+    // WEIGHT VERIFICATION
+    // ============================================================
 
     std::cout << "\n";
     std::cout << "============================================\n";
@@ -268,6 +366,7 @@ int main()
     std::cout << "Total normalized weight: "
               << weightSum
               << "\n";
+
 
     if (std::abs(weightSum - 1.0) < 1e-6)
     {
@@ -279,6 +378,9 @@ int main()
     }
 
 
+    // ============================================================
+    // FILTER VALID PREDICTION CANDIDATES
+    // ============================================================
 
     std::vector<std::size_t> predictionIndices;
     std::vector<double> predictionDistances;
@@ -288,9 +390,12 @@ int main()
         std::size_t originalIndex =
             historicalIndices[match.windowIndex];
 
+
         std::size_t endIndex =
             originalIndex + WINDOW_SIZE - 1;
 
+
+        // Need at least 30 future trading days
         if (endIndex + 30 < prices.size())
         {
             predictionIndices.push_back(
@@ -298,7 +403,7 @@ int main()
             );
 
             predictionDistances.push_back(
-                match.distance
+                match.combinedDistance
             );
         }
     }
@@ -310,7 +415,9 @@ int main()
               << "\n";
 
 
-
+    // ============================================================
+    // WEIGHT PREDICTION CANDIDATES
+    // ============================================================
 
     std::vector<WeightedMatch> predictionMatches =
         calculateWeights(
@@ -319,12 +426,16 @@ int main()
         );
 
 
+    // ============================================================
+    // CALCULATE HISTORICAL FUTURE RETURNS
+    // ============================================================
 
     std::vector<FutureReturns> futureReturns;
 
     futureReturns.reserve(
         predictionMatches.size()
     );
+
 
     std::vector<double> predictionWeights;
 
@@ -342,15 +453,21 @@ int main()
                 WINDOW_SIZE
             );
 
+
         futureReturns.push_back(
             returns
         );
+
 
         predictionWeights.push_back(
             match.normalizedWeight
         );
     }
 
+
+    // ============================================================
+    // WEIGHTED FUTURE PREDICTION
+    // ============================================================
 
     PredictionResult prediction =
         calculateWeightedPrediction(
@@ -359,47 +476,57 @@ int main()
         );
 
 
+    // ============================================================
+    // DISPLAY PREDICTION
+    // ============================================================
 
     std::cout << "\n";
     std::cout << "============================================\n";
     std::cout << "WEIGHTED FUTURE PREDICTION\n";
     std::cout << "============================================\n\n";
 
+
     std::cout << std::fixed
               << std::setprecision(4);
 
 
     std::cout << "+5 days\n";
+
     std::cout << "Expected return : "
               << prediction.prediction5
               << "%\n\n";
 
 
     std::cout << "+10 days\n";
+
     std::cout << "Expected return : "
               << prediction.prediction10
               << "%\n\n";
 
 
     std::cout << "+15 days\n";
+
     std::cout << "Expected return : "
               << prediction.prediction15
               << "%\n\n";
 
 
     std::cout << "+30 days\n";
+
     std::cout << "Expected return : "
               << prediction.prediction30
               << "%\n";
 
 
-    std::vector<double> currentWindow(
-        prices.begin() + currentIndex,
-        prices.begin() + currentIndex + WINDOW_SIZE
-    );
+    // ============================================================
+    // CURRENT WINDOW (already computed above as currentWindow)
+    // ============================================================
 
     std::cout << "\n";
-    std::cout << "Current 30-day window:\n";
+    std::cout << "Current "
+              << WINDOW_SIZE
+              << "-day window:\n";
+
 
     for (std::size_t i = 0;
          i < currentWindow.size();
@@ -412,12 +539,16 @@ int main()
     }
 
 
+    // ============================================================
+    // COMPLETE
+    // ============================================================
 
     std::cout << "\n";
     std::cout << "============================================\n";
     std::cout << "PATTERN MATCHING + WEIGHTED PREDICTION\n";
     std::cout << "COMPLETED SUCCESSFULLY\n";
     std::cout << "============================================\n";
+
 
     return 0;
 }

@@ -20,22 +20,27 @@ double calculateReturn(
     std::size_t days
 )
 {
-    std::size_t futureIndex = startPrice + days;
+    std::size_t futureIndex =
+        startPrice + days;
 
     if (futureIndex >= prices.size())
     {
         return 0.0;
     }
 
-    double currentPrice = prices[startPrice];
-    double futurePrice = prices[futureIndex];
+    double currentPrice =
+        prices[startPrice];
+
+    double futurePrice =
+        prices[futureIndex];
 
     if (currentPrice == 0.0)
     {
         return 0.0;
     }
 
-    return ((futurePrice - currentPrice) / currentPrice) * 100.0;
+    return ((futurePrice - currentPrice) /
+            currentPrice) * 100.0;
 }
 
 
@@ -48,19 +53,14 @@ double calculateWeightedPrediction(
 )
 {
     /*
-        We only use historical windows whose future outcome
-        is already known BEFORE the current window.
-
-        This prevents look-ahead bias.
+        Generate FFT signatures and raw price windows.
     */
 
     std::vector<std::vector<double>> signatures;
-
-    /*
-        Generate signatures only up to currentIndex.
-    */
+    std::vector<std::vector<double>> windows;
 
     signatures.reserve(currentIndex + 1);
+    windows.reserve(currentIndex + 1);
 
     for (std::size_t start = 0;
          start <= currentIndex;
@@ -81,31 +81,34 @@ double calculateWeightedPrediction(
             computeMagnitude(fftResult);
 
         signatures.push_back(magnitude);
+
+        // Raw (un-normalized) window, needed for
+        // trend-distance comparisons.
+        windows.push_back(window);
     }
 
     const std::vector<double>& currentSignature =
         signatures[currentIndex];
 
+    const std::vector<double>& currentWindow =
+        windows[currentIndex];
+
 
     /*
         Historical candidates.
 
-        Important:
-        Candidate j must have its future return known
-        before currentIndex.
-
-        Candidate end:
-            j + windowSize - 1
-
-        Future point:
-            j + windowSize - 1 + horizon
-
-        Therefore:
-            j + windowSize - 1 + horizon < currentIndex
+        Only use patterns whose future return
+        was already known before currentIndex.
     */
 
-    std::vector<std::vector<double>> historicalSignatures;
-    std::vector<std::size_t> historicalIndices;
+    std::vector<std::vector<double>>
+        historicalSignatures;
+
+    std::vector<std::vector<double>>
+        historicalWindows;
+
+    std::vector<std::size_t>
+        historicalIndices;
 
     for (std::size_t j = 0;
          j < currentIndex;
@@ -114,6 +117,9 @@ double calculateWeightedPrediction(
         std::size_t futureIndex =
             j + windowSize - 1 + horizon;
 
+        /*
+            Prevent look-ahead bias.
+        */
         if (futureIndex >= currentIndex)
         {
             continue;
@@ -121,6 +127,10 @@ double calculateWeightedPrediction(
 
         historicalSignatures.push_back(
             signatures[j]
+        );
+
+        historicalWindows.push_back(
+            windows[j]
         );
 
         historicalIndices.push_back(j);
@@ -133,14 +143,32 @@ double calculateWeightedPrediction(
 
 
     /*
-        Find most similar historical patterns.
+        Find similar historical patterns.
+
+        currentIndex is passed through so that
+        findTopMatches can also exclude candidates
+        that are within `windowSize` of the query
+        window itself, on top of the look-ahead
+        filtering already done above. This prevents
+        near-duplicate/autocorrelated windows (e.g.
+        the window immediately preceding currentIndex)
+        from dominating the match set.
+
+        Final argument = minimum separation.
+
+        We use windowSize so that highly overlapping
+        historical patterns are not selected together.
     */
 
     std::vector<PatternMatch> matches =
         findTopMatches(
             currentSignature,
             historicalSignatures,
-            topK
+            currentWindow,
+            historicalWindows,
+            currentIndex,
+            topK,
+            windowSize
         );
 
     if (matches.empty())
@@ -150,11 +178,15 @@ double calculateWeightedPrediction(
 
 
     /*
-        Convert FFT distances into normalized weights.
+        Convert local match indices into
+        original price-series indices.
     */
 
     std::vector<std::size_t> windowIndices;
     std::vector<double> distances;
+
+    windowIndices.reserve(matches.size());
+    distances.reserve(matches.size());
 
     for (const auto& match : matches)
     {
@@ -163,19 +195,30 @@ double calculateWeightedPrediction(
         );
 
         distances.push_back(
-            match.distance
+            match.combinedDistance
         );
     }
 
-    std::vector<WeightedMatch> weightedMatches =
-        calculateWeights(
-            windowIndices,
-            distances
-        );
+
+    /*
+        Distance-based weighting.
+    */
+
+    std::vector<WeightedMatch>
+        weightedMatches =
+            calculateWeights(
+                windowIndices,
+                distances
+            );
+
+    if (weightedMatches.empty())
+    {
+        return 0.0;
+    }
 
 
     /*
-        Weighted future return.
+        Weighted future return prediction.
     */
 
     double prediction = 0.0;
@@ -239,8 +282,8 @@ BacktestMetrics runBacktest(
 
 
     /*
-        Start far enough into the dataset so that
-        historical patterns have known future outcomes.
+        Start far enough into history so that
+        candidate patterns have known outcomes.
     */
 
     const std::size_t MIN_HISTORY =
@@ -252,9 +295,7 @@ BacktestMetrics runBacktest(
          currentIndex += step)
     {
         /*
-            ================================
             PREDICTIONS
-            ================================
         */
 
         double prediction5 =
@@ -295,9 +336,7 @@ BacktestMetrics runBacktest(
 
 
         /*
-            ================================
             ACTUAL FUTURE RETURNS
-            ================================
         */
 
         std::size_t currentPriceIndex =
@@ -333,59 +372,80 @@ BacktestMetrics runBacktest(
 
 
         /*
-            ================================
             MAE
-            ================================
         */
 
         error5 +=
-            std::abs(prediction5 - actual5);
+            std::abs(
+                prediction5 - actual5
+            );
 
         error10 +=
-            std::abs(prediction10 - actual10);
+            std::abs(
+                prediction10 - actual10
+            );
 
         error15 +=
-            std::abs(prediction15 - actual15);
+            std::abs(
+                prediction15 - actual15
+            );
 
         error30 +=
-            std::abs(prediction30 - actual30);
+            std::abs(
+                prediction30 - actual30
+            );
 
 
         /*
-            ================================
             DIRECTIONAL ACCURACY
-            ================================
         */
 
-        if ((prediction5 >= 0.0 && actual5 >= 0.0) ||
-            (prediction5 < 0.0 && actual5 < 0.0))
+        if (
+            (prediction5 >= 0.0 &&
+             actual5 >= 0.0) ||
+            (prediction5 < 0.0 &&
+             actual5 < 0.0)
+        )
         {
             ++correct5;
         }
 
-        if ((prediction10 >= 0.0 && actual10 >= 0.0) ||
-            (prediction10 < 0.0 && actual10 < 0.0))
+        if (
+            (prediction10 >= 0.0 &&
+             actual10 >= 0.0) ||
+            (prediction10 < 0.0 &&
+             actual10 < 0.0)
+        )
         {
             ++correct10;
         }
 
-        if ((prediction15 >= 0.0 && actual15 >= 0.0) ||
-            (prediction15 < 0.0 && actual15 < 0.0))
+        if (
+            (prediction15 >= 0.0 &&
+             actual15 >= 0.0) ||
+            (prediction15 < 0.0 &&
+             actual15 < 0.0)
+        )
         {
             ++correct15;
         }
 
-        if ((prediction30 >= 0.0 && actual30 >= 0.0) ||
-            (prediction30 < 0.0 && actual30 < 0.0))
+        if (
+            (prediction30 >= 0.0 &&
+             actual30 >= 0.0) ||
+            (prediction30 < 0.0 &&
+             actual30 < 0.0)
+        )
         {
             ++correct30;
         }
+
 
         ++metrics.samples;
 
 
         /*
-            Print first few samples for verification.
+            Print first 5 samples.
         */
 
         if (metrics.samples <= 5)
@@ -433,21 +493,29 @@ BacktestMetrics runBacktest(
 
 
     /*
-        Final metrics.
+        FINAL MAE
     */
 
     metrics.mae5 =
-        error5 / metrics.samples;
+        error5 /
+        metrics.samples;
 
     metrics.mae10 =
-        error10 / metrics.samples;
+        error10 /
+        metrics.samples;
 
     metrics.mae15 =
-        error15 / metrics.samples;
+        error15 /
+        metrics.samples;
 
     metrics.mae30 =
-        error30 / metrics.samples;
+        error30 /
+        metrics.samples;
 
+
+    /*
+        FINAL DIRECTIONAL ACCURACY
+    */
 
     metrics.directionalAccuracy5 =
         (static_cast<double>(correct5) /
