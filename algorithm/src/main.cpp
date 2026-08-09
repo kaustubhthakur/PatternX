@@ -2,18 +2,18 @@
 #include <vector>
 #include <complex>
 #include <iomanip>
+#include <cmath>
 
 #include "../include/StockData.hpp"
 #include "../include/Normalizer.hpp"
 #include "../include/FFT.hpp"
 #include "../include/PatternMatcher.hpp"
 #include "../include/WeightedRanking.hpp"
-
+#include "../include/Prediction.hpp"
 
 int main()
 {
-
-
+   
     std::vector<PriceData> data =
         loadStockData("data/stocks.csv");
 
@@ -51,7 +51,7 @@ int main()
     }
 
 
- 
+
 
     const std::size_t totalWindows =
         prices.size() - WINDOW_SIZE + 1;
@@ -65,8 +65,7 @@ int main()
               << "\n\n";
 
 
-  
-
+    // Last window = current market pattern
     const std::size_t currentIndex =
         totalWindows - 1;
 
@@ -94,7 +93,7 @@ int main()
         std::vector<std::complex<double>> fftResult =
             computeFFT(normalized);
 
-        // Magnitude
+        // FFT magnitude
         std::vector<double> magnitude =
             computeMagnitude(fftResult);
 
@@ -104,6 +103,7 @@ int main()
     std::cout << "FFT signatures generated: "
               << signatures.size()
               << "\n\n";
+
 
 
 
@@ -122,7 +122,6 @@ int main()
 
 
     std::vector<std::vector<double>> historicalSignatures;
-
     std::vector<std::size_t> historicalIndices;
 
     for (std::size_t i = 0;
@@ -151,8 +150,6 @@ int main()
         );
 
 
-  
-
     std::cout << "============================================\n";
     std::cout << "TOP "
               << TOP_K
@@ -162,11 +159,13 @@ int main()
     std::cout << std::fixed
               << std::setprecision(6);
 
+
     std::vector<std::size_t> windowIndices;
     std::vector<double> distances;
 
     windowIndices.reserve(matches.size());
     distances.reserve(matches.size());
+
 
     for (std::size_t rank = 0;
          rank < matches.size();
@@ -205,7 +204,7 @@ int main()
     }
 
 
- 
+
 
     std::vector<WeightedMatch> weightedMatches =
         calculateWeights(
@@ -214,12 +213,11 @@ int main()
         );
 
 
-  
-
     std::cout << "\n";
     std::cout << "============================================\n";
     std::cout << "WEIGHTED MATCH RANKING\n";
     std::cout << "============================================\n\n";
+
 
     double weightSum = 0.0;
 
@@ -260,7 +258,7 @@ int main()
     }
 
 
-  
+
 
     std::cout << "\n";
     std::cout << "============================================\n";
@@ -281,7 +279,119 @@ int main()
     }
 
 
-  
+
+    std::vector<std::size_t> predictionIndices;
+    std::vector<double> predictionDistances;
+
+    for (const auto& match : matches)
+    {
+        std::size_t originalIndex =
+            historicalIndices[match.windowIndex];
+
+        std::size_t endIndex =
+            originalIndex + WINDOW_SIZE - 1;
+
+        if (endIndex + 30 < prices.size())
+        {
+            predictionIndices.push_back(
+                originalIndex
+            );
+
+            predictionDistances.push_back(
+                match.distance
+            );
+        }
+    }
+
+
+    std::cout << "\n";
+    std::cout << "Prediction candidates: "
+              << predictionIndices.size()
+              << "\n";
+
+
+
+
+    std::vector<WeightedMatch> predictionMatches =
+        calculateWeights(
+            predictionIndices,
+            predictionDistances
+        );
+
+
+
+    std::vector<FutureReturns> futureReturns;
+
+    futureReturns.reserve(
+        predictionMatches.size()
+    );
+
+    std::vector<double> predictionWeights;
+
+    predictionWeights.reserve(
+        predictionMatches.size()
+    );
+
+
+    for (const auto& match : predictionMatches)
+    {
+        FutureReturns returns =
+            calculateFutureReturns(
+                prices,
+                match.windowIndex,
+                WINDOW_SIZE
+            );
+
+        futureReturns.push_back(
+            returns
+        );
+
+        predictionWeights.push_back(
+            match.normalizedWeight
+        );
+    }
+
+
+    PredictionResult prediction =
+        calculateWeightedPrediction(
+            futureReturns,
+            predictionWeights
+        );
+
+
+
+    std::cout << "\n";
+    std::cout << "============================================\n";
+    std::cout << "WEIGHTED FUTURE PREDICTION\n";
+    std::cout << "============================================\n\n";
+
+    std::cout << std::fixed
+              << std::setprecision(4);
+
+
+    std::cout << "+5 days\n";
+    std::cout << "Expected return : "
+              << prediction.prediction5
+              << "%\n\n";
+
+
+    std::cout << "+10 days\n";
+    std::cout << "Expected return : "
+              << prediction.prediction10
+              << "%\n\n";
+
+
+    std::cout << "+15 days\n";
+    std::cout << "Expected return : "
+              << prediction.prediction15
+              << "%\n\n";
+
+
+    std::cout << "+30 days\n";
+    std::cout << "Expected return : "
+              << prediction.prediction30
+              << "%\n";
+
 
     std::vector<double> currentWindow(
         prices.begin() + currentIndex,
@@ -302,9 +412,12 @@ int main()
     }
 
 
+
     std::cout << "\n";
-    std::cout << "Weighted ranking test "
-              << "completed successfully.\n";
+    std::cout << "============================================\n";
+    std::cout << "PATTERN MATCHING + WEIGHTED PREDICTION\n";
+    std::cout << "COMPLETED SUCCESSFULLY\n";
+    std::cout << "============================================\n";
 
     return 0;
 }
