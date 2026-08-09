@@ -1,158 +1,133 @@
-PatternX - Match Historical Stock pattern with current market data
+# PatternX
 
-- user will input Stock and Window(15,30,60,90) days (input)
-- algorithm will output the similar pattern which happens from last 10-15 years data and its match percentage and year (eg. 96.4% match , 2018)
-- FFT,Sliding window 
+**Historical stock pattern matching using FFT-based shape similarity, trend analysis, and weighted k-NN prediction.**
+
+PatternX takes a stock symbol and a window size (15 / 30 / 60 / 90 days), converts the recent price pattern into a frequency-domain signature, and searches 10–20 years of historical data for the most similar past patterns. It then produces a weighted expected return over the next 5, 10, 15, and 30 days based on what happened after those historical analogs.
+
+```
+Input:  NVIDIA, 30-day window
+Output: Top historical matches (e.g. 96.4% similarity → Oct 2018)
+        Weighted expected return over +5 / +10 / +15 / +30 days
+```
+
+Built in C++17, from raw CSV ingestion through FFT, pattern matching, weighted ranking, and a leak-free backtesting framework.
+
+---
+
+## How it works
+
+```
+Historical Stock Data (10–20 yrs)
+        │
+        ▼
+   Data Cleaning ──▶ Extract Close Prices ──▶ Sliding Windows (15/30/60/90d)
+        │
+        ▼
+    Normalize  ──▶  FFT (time → frequency domain)  ──▶  Magnitude Signature
+        │
+        ▼
+  Historical Pattern Feature Set ──┐
+                                   │
+  Current Window ──▶ Normalize ──▶ FFT ──▶ Signature ──┤
+                                   │
+                                   ▼
+                        Similarity Search (FFT distance
+                          + trend distance, weighted)
+                                   │
+                                   ▼
+                            Top-K Matches
+                                   │
+                                   ▼
+                    Historical Future Returns (+5/+10/+15/+30d)
+                                   │
+                                   ▼
+                  Weighted Aggregation (closer match = more weight)
+                                   │
+                                   ▼
+                       Weighted Return Prediction
+```
+
+**Normalization** removes absolute price scale so patterns are compared by shape, not price level:
+
+```
+dxx = (dx - dy) / dy
+```
+
+**FFT** (Cooley–Tukey) converts each normalized window into the frequency domain:
+
+```
+Xk = Σ (n=0 to N-1) xn · e^(-i2πkn/N)
+```
+
+Low frequencies capture the broad trend of a window; high frequencies capture faster fluctuations. The magnitude spectrum becomes that window's "signature," used to compare shape similarity independent of absolute price.
+
+**Pattern matching** combines two signals:
+- **FFT distance** — Euclidean distance between magnitude signatures (shape similarity)
+- **Trend distance** — difference in overall % movement across the window (direction/magnitude similarity), added because FFT magnitude alone discards phase information and can't distinguish "up then down" from "down then up"
+
+These are blended into a single combined distance (70% FFT / 30% trend) used to rank the top-K historical matches.
+
+**Prediction** weights each of the top-K matches by inverse distance (closer match → more influence), then combines their known historical forward returns into a single weighted expected return per horizon:
+
+```
+Return_h(k) = ((Price_(h+k) - Price_h) / Price_h) × 100
+```
 
 
 
-E.g
+## Building & running
 
-input 
-- NVIDIA
-- 30 DAYS
+```bash
+# Live prediction on the most recent window
+g++ -Wall -Wextra -std=c++17 src/main.cpp src/StockData.cpp src/Normalizer.cpp \
+    src/FFT.cpp src/PatternMatching.cpp src/WeightedRanking.cpp src/Prediction.cpp \
+    -o src/output/main.exe
+./src/output/main.exe
 
+# Backtest across historical windows
+g++ -Wall -Wextra -std=c++17 src/BacktestMain.cpp src/Backtester.cpp src/StockData.cpp \
+    src/Normalizer.cpp src/FFT.cpp src/PatternMatching.cpp src/WeightedRanking.cpp \
+    src/Prediction.cpp -o src/output/backtest.exe
+./src/output/backtest.exe
+```
 
-output - percentage , window date
-         96.4% , 2018(oct-1 to oct 30)
+---
 
+## Debugging & validation
 
-- sliding window 
-- normalize 
-    dxx = (dx-dy)/dy 
-- fft
-    Xk​=∑n=0N−1​xn​e−i2πkn/N
+The most important part of this project wasn't writing the pattern-matching logic — it was building a backtest rigorous enough to catch it lying to me. Two real bugs surfaced this way:
 
-    FFT converts the normalized stock-price data from the time domain to the frequency domain. It decomposes a price pattern into different frequency components, where low frequencies represent broader trends and higher frequencies represent faster fluctuations.
+### 1. Autocorrelation / lookahead leakage
+The top-K selection enforced minimum separation *between* selected matches, but not between a candidate and the **current query window itself**. This let trivially adjacent windows (e.g. "yesterday," almost fully overlapping the query) win top-match slots purely because a window is highly self-similar one day apart — not because it represented a genuinely recurring historical pattern.
 
-    Cooley–Tukey FFT algorithm to efficiently generate the frequency spectrum. The magnitude of each frequency component represents its strength, producing a frequency-domain signature that can later be used to compare historical stock-price patterns.
+**Fix:** pass the query window's index through to the matcher and exclude any candidate within `minSeparation` of it, in addition to the existing separation between selected matches.
 
-- pattern matching 
- Return_h(k) = ((Price_(h+k) - Price_h) / Price_h) × 100
+### 2. Spectral leakage from zero-padding
+Each 30-day window was zero-padded to 32 samples (next power of two) before the FFT. If the real signal didn't already end near zero, this created an artificial discontinuity at the boundary, which the FFT read as high-frequency content that was never actually in the price pattern — a fixed noise source added to every signature.
 
-  It measures how much the stock price changed after the historical pattern.
+**Fix:** apply a Hann window (smooth cosine taper to ~0 at both edges) before padding, so the transition to zero-padding is near-seamless instead of a sharp jump.
 
-Where:
+### Results (TCS, 238 backtest samples, step = 10)
 
-Priceh = price at the end of the historical matched window
-Price
-h+k = price k days after that window
-k = future period, e.g. 5, 10, 15, or 30 days
-Return = percentage gain/loss
+| Horizon | Baseline | + Lookahead fix | + Hann window |
+|---|---|---|---|
+| +5 days  | 48.74% | 50.00% | 50.42% |
+| +10 days | 45.80% | 46.22% | **55.88%** |
+| +15 days | 50.00% | 50.42% | 53.36% |
+| +30 days | 53.78% | 53.78% | 54.20% |
 
-    
--  Weighted prediction improves your current Top-10 historical pattern analysis by giving more importance to patterns that are more similar to the current pattern.    
+*(Directional accuracy — % of predictions that correctly called the sign of the future return. 50% is the random baseline.)*
 
+Both fixes moved every horizon up or held flat, never down — a useful sanity check that neither was a lucky, noise-driven change.
 
-- prediction : 
-The Prediction module converts the historical pattern matches into a future price-movement estimate.
+---
 
-It takes the Top-K historical patterns found by FFT pattern matching.
-Each historical pattern has a normalized weight based on its similarity to the current pattern.
-It calculates the historical return after 5, 10, 15, and 30 days for each matched pattern.
-It combines these returns using the similarity weights to produce the final weighted expected return.
+## Honest limitations
 
+This is a research/learning project, not a validated trading strategy. Specifically:
 
------------------------------------------------------------------------------------- FLOW --------------------------------------------------------------------------
+- **Backtest samples are correlated**, not independent — overlapping windows mean the effective statistical power behind "238 samples" is lower than it looks. The +10 day jump to 55.88% has not yet been confirmed against a significance test or a base-rate check (is the historical data itself skewed toward down-moves in this period?).
+- **Single stock, price-only.** No volume, market/sector context, or volatility regime conditioning — all known to matter for real forward-return prediction.
+- **No transaction costs, slippage, or position sizing** — even a confirmed statistical edge doesn't automatically survive real trading frictions.
+- **FFT magnitude is phase-blind.** Trend distance was added to partly compensate, but a shape-and-order-preserving distance measure (e.g. DTW on raw or return-sequence data) would likely be a stronger foundation than magnitude spectra alone.
 
-
-algorithm flow - 
-
-
-┌──────────────────────────┐
-│   Historical Stock Data  │
-│      10–20 Years         │
-└────────────┬─────────────┘
-             ↓
-┌──────────────────────────┐
-│      Data Cleaning       │
-│ Missing / Duplicate Data │
-└────────────┬─────────────┘
-             ↓
-┌──────────────────────────┐
-│     Extract Prices       │
-│       Close Price        │
-└────────────┬─────────────┘
-             ↓
-┌──────────────────────────┐
-│     Sliding Windows      │
-│       15 / 30 Days       │
-└────────────┬─────────────┘
-             ↓
-┌──────────────────────────┐
-│       Normalize          │
-│ Remove Absolute Price    │
-│          Scale           │
-└────────────┬─────────────┘
-             ↓
-┌──────────────────────────┐
-│          FFT             │
-│ Time Domain → Frequency  │
-│          Domain          │
-└────────────┬─────────────┘
-             ↓
-┌──────────────────────────┐
-│   Feature Extraction     │
-│ Magnitude / Phase /      │
-│ Frequency Components     │
-└────────────┬─────────────┘
-             ↓
-┌──────────────────────────┐
-│ Historical Pattern       │
-│      Feature Set         │
-└────────────┬─────────────┘
-             │
-             │
-             │        ┌──────────────────────┐
-             │        │   Current 15/30/60/90│
-             │        │      Day Window      │
-             │        └──────────┬───────────┘
-             │                   ↓
-             │        ┌──────────────────────┐
-             │        │     Normalize        │
-             │        └──────────┬───────────┘
-             │                   ↓
-             │        ┌──────────────────────┐
-             │        │        FFT           │
-             │        └──────────┬───────────┘
-             │                   ↓
-             │        ┌──────────────────────┐
-             │        │ Feature Extraction   │
-             │        └──────────┬───────────┘
-             │                   │
-             └───────────────────┤
-                                 ↓
-                    ┌──────────────────────── ┐
-                    │   Similarity Search     │
-                    │                         │
-                    │ Compare Current Pattern │
-                    │ With Historical Patterns│
-                    └────────────┬─────────── ┘
-                                 ↓
-                    ┌────────────────────────┐
-                    │    Top-K Matches       │
-                    │   Most Similar Patterns│
-                    └────────────┬───────────┘
-                                 ↓
-                    ┌────────────────────────┐
-                    │    Future Outcomes     │
-                    │                        │
-                    │ 1D / 5D / 10D / 20D    │
-                    │       Returns          │
-                    └────────────┬───────────┘
-                                 ↓
-                    ┌────────────────────────┐
-                    │  Weighted Aggregation  │
-                    │                        │
-                    │ Stronger Match = More  │
-                    │        Weight          │
-                    └────────────┬───────────┘
-                                 ↓
-                    ┌────────────────────────┐
-                    │   Pattern Prediction   │
-                    │                        │
-                    │ Expected Return        │
-                    │ Probability / Direction│
-
-                    └────────────────────────┘
----------------------------------------------------------------------- FLOW END ------------------------------------------------------------------------------------
