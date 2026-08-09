@@ -45,6 +45,12 @@ Return = percentage gain/loss
 
 
 - prediction : 
+The Prediction module converts the historical pattern matches into a future price-movement estimate.
+
+It takes the Top-K historical patterns found by FFT pattern matching.
+Each historical pattern has a normalized weight based on its similarity to the current pattern.
+It calculates the historical return after 5, 10, 15, and 30 days for each matched pattern.
+It combines these returns using the similarity weights to produce the final weighted expected return.
 
 
 ------------------------------------------------------------------------------------ FLOW --------------------------------------------------------------------------
