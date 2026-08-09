@@ -206,11 +206,7 @@ int main()
             matches[rank];
 
 
-        // match.windowIndex already refers to the original
-        // window index (it's the raw index passed in via
-        // historicalSignatures/historicalWindows, not a
-        // local re-indexed position), since those vectors
-        // were built in the same order as historicalIndices.
+ 
         std::size_t originalIndex =
             historicalIndices[match.windowIndex];
 
