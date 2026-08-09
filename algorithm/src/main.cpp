@@ -13,9 +13,7 @@
 
 int main()
 {
-    // ============================================================
-    // LOAD STOCK DATA
-    // ============================================================
+
 
     std::vector<PriceData> data =
         loadStockData("data/stocks.csv");
@@ -25,9 +23,7 @@ int main()
               << "\n\n";
 
 
-    // ============================================================
-    // EXTRACT TCS CLOSING PRICES
-    // ============================================================
+
 
     std::vector<double> prices;
 
@@ -44,10 +40,6 @@ int main()
               << "\n\n";
 
 
-    // ============================================================
-    // CONFIGURATION
-    // ============================================================
-
     const std::size_t WINDOW_SIZE = 30;
     const std::size_t TOP_K = 10;
 
@@ -62,9 +54,6 @@ int main()
     }
 
 
-    // ============================================================
-    // TOTAL SLIDING WINDOWS
-    // ============================================================
 
     const std::size_t totalWindows =
         prices.size() - WINDOW_SIZE + 1;
@@ -86,18 +75,11 @@ int main()
               << "\n\n";
 
 
-    // ============================================================
-    // CURRENT WINDOW
-    // ============================================================
 
-    // Last window represents the current market pattern
     const std::size_t currentIndex =
         totalWindows - 1;
 
 
-    // ============================================================
-    // GENERATE FFT SIGNATURES + RAW PRICE WINDOWS
-    // ============================================================
 
     std::vector<std::vector<double>> signatures;
     std::vector<std::vector<double>> windows;
@@ -115,25 +97,17 @@ int main()
         );
 
 
-        // -----------------------------
-        // Normalize
-        // -----------------------------
 
         std::vector<double> normalized =
             normalizeWindow(window);
 
 
-        // -----------------------------
-        // FFT
-        // -----------------------------
+
 
         std::vector<std::complex<double>> fftResult =
             computeFFT(normalized);
 
 
-        // -----------------------------
-        // FFT Magnitude
-        // -----------------------------
 
         std::vector<double> magnitude =
             computeMagnitude(fftResult);
@@ -141,8 +115,7 @@ int main()
 
         signatures.push_back(magnitude);
 
-        // Keep the raw (un-normalized) price window too,
-        // used for trend-distance comparisons.
+
         windows.push_back(window);
     }
 
@@ -151,9 +124,6 @@ int main()
               << "\n\n";
 
 
-    // ============================================================
-    // CURRENT FFT SIGNATURE + CURRENT WINDOW
-    // ============================================================
 
     const std::vector<double>& currentSignature =
         signatures[currentIndex];
@@ -170,9 +140,6 @@ int main()
               << "\n\n";
 
 
-    // ============================================================
-    // HISTORICAL SIGNATURES + HISTORICAL WINDOWS
-    // ============================================================
 
     std::vector<std::vector<double>> historicalSignatures;
     std::vector<std::vector<double>> historicalWindows;
@@ -198,9 +165,6 @@ int main()
               << "\n\n";
 
 
-    // ============================================================
-    // FIND TOP HISTORICAL MATCHES
-    // ============================================================
 
     std::vector<PatternMatch> matches =
         findTopMatches(
@@ -232,9 +196,7 @@ int main()
     distances.reserve(matches.size());
 
 
-    // ============================================================
-    // DISPLAY MATCHES
-    // ============================================================
+
 
     for (std::size_t rank = 0;
          rank < matches.size();
@@ -294,9 +256,6 @@ int main()
     }
 
 
-    // ============================================================
-    // WEIGHTED RANKING
-    // ============================================================
 
     std::vector<WeightedMatch> weightedMatches =
         calculateWeights(
@@ -354,9 +313,7 @@ int main()
     }
 
 
-    // ============================================================
-    // WEIGHT VERIFICATION
-    // ============================================================
+
 
     std::cout << "\n";
     std::cout << "============================================\n";
@@ -378,9 +335,6 @@ int main()
     }
 
 
-    // ============================================================
-    // FILTER VALID PREDICTION CANDIDATES
-    // ============================================================
 
     std::vector<std::size_t> predictionIndices;
     std::vector<double> predictionDistances;
@@ -415,9 +369,6 @@ int main()
               << "\n";
 
 
-    // ============================================================
-    // WEIGHT PREDICTION CANDIDATES
-    // ============================================================
 
     std::vector<WeightedMatch> predictionMatches =
         calculateWeights(
@@ -425,10 +376,6 @@ int main()
             predictionDistances
         );
 
-
-    // ============================================================
-    // CALCULATE HISTORICAL FUTURE RETURNS
-    // ============================================================
 
     std::vector<FutureReturns> futureReturns;
 
@@ -465,9 +412,6 @@ int main()
     }
 
 
-    // ============================================================
-    // WEIGHTED FUTURE PREDICTION
-    // ============================================================
 
     PredictionResult prediction =
         calculateWeightedPrediction(
@@ -476,9 +420,6 @@ int main()
         );
 
 
-    // ============================================================
-    // DISPLAY PREDICTION
-    // ============================================================
 
     std::cout << "\n";
     std::cout << "============================================\n";
@@ -518,9 +459,6 @@ int main()
               << "%\n";
 
 
-    // ============================================================
-    // CURRENT WINDOW (already computed above as currentWindow)
-    // ============================================================
 
     std::cout << "\n";
     std::cout << "Current "
@@ -539,9 +477,6 @@ int main()
     }
 
 
-    // ============================================================
-    // COMPLETE
-    // ============================================================
 
     std::cout << "\n";
     std::cout << "============================================\n";
