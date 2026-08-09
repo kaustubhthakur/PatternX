@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <cstddef>
 #include <iostream>
 #include <vector>
 
@@ -105,12 +106,63 @@ double calculateZScore(
 
 
 /*
+    Calculate the actual trading return.
+
+    If predictedPositive == true:
+        Long position.
+
+    If predictedPositive == false:
+        Short position.
+
+    The returned value represents the
+    directional strategy return.
+*/
+double calculateDirectionalTradeReturn(
+    const std::vector<double>& prices,
+    std::size_t currentPriceIndex,
+    std::size_t horizon,
+    bool predictedPositive
+)
+{
+    const std::size_t futureIndex =
+        currentPriceIndex + horizon;
+
+    if (futureIndex >= prices.size())
+    {
+        return 0.0;
+    }
+
+    const double currentPrice =
+        prices[currentPriceIndex];
+
+    const double futurePrice =
+        prices[futureIndex];
+
+    if (currentPrice == 0.0)
+    {
+        return 0.0;
+    }
+
+    const double rawReturn =
+        ((futurePrice - currentPrice)
+         / currentPrice) * 100.0;
+
+    if (predictedPositive)
+    {
+        return rawReturn;
+    }
+
+    return -rawReturn;
+}
+
+
+/*
     Build the pattern universe available at a
     particular query index.
 
     A historical window is allowed only if its
-    entire future outcome is already known before
-    the query begins.
+    complete future outcome is already known
+    before the query begins.
 */
 bool buildMatches(
     const std::vector<double>& prices,
@@ -138,10 +190,6 @@ bool buildMatches(
     std::vector<std::size_t>
         historicalIndices;
 
-    /*
-        Only construct windows that can actually
-        fit inside the known data.
-    */
     const std::size_t totalWindows =
         currentIndex + 1;
 
@@ -192,7 +240,6 @@ bool buildMatches(
         currentWindow =
             windows[currentIndex];
 
-
     std::vector<std::vector<double>>
         historicalSignatures;
 
@@ -202,21 +249,11 @@ bool buildMatches(
     std::vector<std::size_t>
         candidateIndices;
 
-
     /*
         STRICT walk-forward restriction.
 
-        Historical pattern's complete future outcome
-        must exist before currentIndex.
-
-        Example:
-
-        query starts at 1703
-
-        historical window:
-        start + windowSize - 1 + horizon
-
-        must be < 1703
+        Historical pattern's complete future
+        outcome must exist before currentIndex.
     */
     for (std::size_t j = 0;
          j < currentIndex;
@@ -246,7 +283,6 @@ bool buildMatches(
         return false;
     }
 
-
     std::vector<PatternMatch> matches =
         findTopMatches(
             currentSignature,
@@ -263,7 +299,6 @@ bool buildMatches(
         return false;
     }
 
-
     std::vector<std::size_t>
         windowIndices;
 
@@ -272,7 +307,6 @@ bool buildMatches(
 
     windowIndices.reserve(matches.size());
     distances.reserve(matches.size());
-
 
     for (const auto& match : matches)
     {
@@ -283,6 +317,12 @@ bool buildMatches(
             Convert it back to the original
             price-window index.
         */
+        if (match.windowIndex >=
+            candidateIndices.size())
+        {
+            continue;
+        }
+
         windowIndices.push_back(
             candidateIndices[
                 match.windowIndex
@@ -294,6 +334,10 @@ bool buildMatches(
         );
     }
 
+    if (windowIndices.empty())
+    {
+        return false;
+    }
 
     weightedMatches =
         calculateWeights(
@@ -366,34 +410,28 @@ BacktestMetrics runBacktest(
         step = 1;
     }
 
-
     double error5 = 0.0;
     double error10 = 0.0;
     double error15 = 0.0;
     double error30 = 0.0;
-
 
     std::size_t correct5 = 0;
     std::size_t correct10 = 0;
     std::size_t correct15 = 0;
     std::size_t correct30 = 0;
 
-
     std::size_t actualPositive5 = 0;
     std::size_t actualPositive10 = 0;
     std::size_t actualPositive15 = 0;
     std::size_t actualPositive30 = 0;
-
 
     std::size_t naiveCorrect5 = 0;
     std::size_t naiveCorrect10 = 0;
     std::size_t naiveCorrect15 = 0;
     std::size_t naiveCorrect30 = 0;
 
-
     const std::size_t MIN_HISTORY =
         windowSize + 30 + 10;
-
 
     for (std::size_t currentIndex = MIN_HISTORY;
          currentIndex + 30 < prices.size();
@@ -411,81 +449,97 @@ BacktestMetrics runBacktest(
         std::vector<WeightedMatch>
             matches30;
 
-
-        buildMatches(
-            prices,
-            currentIndex,
-            windowSize,
-            topK,
-            5,
-            matches5
-        );
-
-        buildMatches(
-            prices,
-            currentIndex,
-            windowSize,
-            topK,
-            10,
-            matches10
-        );
-
-        buildMatches(
-            prices,
-            currentIndex,
-            windowSize,
-            topK,
-            15,
-            matches15
-        );
-
-        buildMatches(
-            prices,
-            currentIndex,
-            windowSize,
-            topK,
-            30,
-            matches30
-        );
-
-
-        double prediction5 =
-            calculateWeightedPredictionFromMatches(
+        const bool valid5 =
+            buildMatches(
                 prices,
-                matches5,
+                currentIndex,
                 windowSize,
-                5
+                topK,
+                5,
+                matches5
             );
 
-        double prediction10 =
-            calculateWeightedPredictionFromMatches(
+        const bool valid10 =
+            buildMatches(
                 prices,
-                matches10,
+                currentIndex,
                 windowSize,
-                10
+                topK,
+                10,
+                matches10
             );
 
-        double prediction15 =
-            calculateWeightedPredictionFromMatches(
+        const bool valid15 =
+            buildMatches(
                 prices,
-                matches15,
+                currentIndex,
                 windowSize,
-                15
+                topK,
+                15,
+                matches15
             );
 
-        double prediction30 =
-            calculateWeightedPredictionFromMatches(
+        const bool valid30 =
+            buildMatches(
                 prices,
-                matches30,
+                currentIndex,
                 windowSize,
-                30
+                topK,
+                30,
+                matches30
             );
 
+        if (!valid5 &&
+            !valid10 &&
+            !valid15 &&
+            !valid30)
+        {
+            continue;
+        }
+
+        const double prediction5 =
+            valid5
+                ? calculateWeightedPredictionFromMatches(
+                    prices,
+                    matches5,
+                    windowSize,
+                    5
+                  )
+                : 0.0;
+
+        const double prediction10 =
+            valid10
+                ? calculateWeightedPredictionFromMatches(
+                    prices,
+                    matches10,
+                    windowSize,
+                    10
+                  )
+                : 0.0;
+
+        const double prediction15 =
+            valid15
+                ? calculateWeightedPredictionFromMatches(
+                    prices,
+                    matches15,
+                    windowSize,
+                    15
+                  )
+                : 0.0;
+
+        const double prediction30 =
+            valid30
+                ? calculateWeightedPredictionFromMatches(
+                    prices,
+                    matches30,
+                    windowSize,
+                    30
+                  )
+                : 0.0;
 
         const std::size_t currentPriceIndex =
             currentIndex +
             windowSize - 1;
-
 
         const double actual5 =
             calculateReturn(
@@ -515,6 +569,89 @@ BacktestMetrics runBacktest(
                 30
             );
 
+        if (valid5)
+        {
+            error5 +=
+                std::abs(
+                    prediction5 - actual5
+                );
+
+            if (
+                (prediction5 >= 0.0 &&
+                 actual5 >= 0.0) ||
+                (prediction5 < 0.0 &&
+                 actual5 < 0.0)
+            )
+            {
+                ++correct5;
+            }
+
+            if (actual5 >= 0.0)
+                ++actualPositive5;
+        }
+
+        if (valid10)
+        {
+            error10 +=
+                std::abs(
+                    prediction10 - actual10
+                );
+
+            if (
+                (prediction10 >= 0.0 &&
+                 actual10 >= 0.0) ||
+                (prediction10 < 0.0 &&
+                 actual10 < 0.0)
+            )
+            {
+                ++correct10;
+            }
+
+            if (actual10 >= 0.0)
+                ++actualPositive10;
+        }
+
+        if (valid15)
+        {
+            error15 +=
+                std::abs(
+                    prediction15 - actual15
+                );
+
+            if (
+                (prediction15 >= 0.0 &&
+                 actual15 >= 0.0) ||
+                (prediction15 < 0.0 &&
+                 actual15 < 0.0)
+            )
+            {
+                ++correct15;
+            }
+
+            if (actual15 >= 0.0)
+                ++actualPositive15;
+        }
+
+        if (valid30)
+        {
+            error30 +=
+                std::abs(
+                    prediction30 - actual30
+                );
+
+            if (
+                (prediction30 >= 0.0 &&
+                 actual30 >= 0.0) ||
+                (prediction30 < 0.0 &&
+                 actual30 < 0.0)
+            )
+            {
+                ++correct30;
+            }
+
+            if (actual30 >= 0.0)
+                ++actualPositive30;
+        }
 
         const double trailingReturn =
             calculateTrailingReturn(
@@ -523,131 +660,59 @@ BacktestMetrics runBacktest(
                 5
             );
 
-
-        error5 +=
-            std::abs(
-                prediction5 - actual5
-            );
-
-        error10 +=
-            std::abs(
-                prediction10 - actual10
-            );
-
-        error15 +=
-            std::abs(
-                prediction15 - actual15
-            );
-
-        error30 +=
-            std::abs(
-                prediction30 - actual30
-            );
-
-
         if (
-            (prediction5 >= 0.0 &&
-             actual5 >= 0.0) ||
-            (prediction5 < 0.0 &&
-             actual5 < 0.0)
-        )
-        {
-            ++correct5;
-        }
-
-
-        if (
-            (prediction10 >= 0.0 &&
-             actual10 >= 0.0) ||
-            (prediction10 < 0.0 &&
-             actual10 < 0.0)
-        )
-        {
-            ++correct10;
-        }
-
-
-        if (
-            (prediction15 >= 0.0 &&
-             actual15 >= 0.0) ||
-            (prediction15 < 0.0 &&
-             actual15 < 0.0)
-        )
-        {
-            ++correct15;
-        }
-
-
-        if (
-            (prediction30 >= 0.0 &&
-             actual30 >= 0.0) ||
-            (prediction30 < 0.0 &&
-             actual30 < 0.0)
-        )
-        {
-            ++correct30;
-        }
-
-
-        if (
-            (trailingReturn >= 0.0 &&
-             actual5 >= 0.0) ||
-            (trailingReturn < 0.0 &&
-             actual5 < 0.0)
+            valid5 &&
+            (
+                (trailingReturn >= 0.0 &&
+                 actual5 >= 0.0) ||
+                (trailingReturn < 0.0 &&
+                 actual5 < 0.0)
+            )
         )
         {
             ++naiveCorrect5;
         }
 
-
         if (
-            (trailingReturn >= 0.0 &&
-             actual10 >= 0.0) ||
-            (trailingReturn < 0.0 &&
-             actual10 < 0.0)
+            valid10 &&
+            (
+                (trailingReturn >= 0.0 &&
+                 actual10 >= 0.0) ||
+                (trailingReturn < 0.0 &&
+                 actual10 < 0.0)
+            )
         )
         {
             ++naiveCorrect10;
         }
 
-
         if (
-            (trailingReturn >= 0.0 &&
-             actual15 >= 0.0) ||
-            (trailingReturn < 0.0 &&
-             actual15 < 0.0)
+            valid15 &&
+            (
+                (trailingReturn >= 0.0 &&
+                 actual15 >= 0.0) ||
+                (trailingReturn < 0.0 &&
+                 actual15 < 0.0)
+            )
         )
         {
             ++naiveCorrect15;
         }
 
-
         if (
-            (trailingReturn >= 0.0 &&
-             actual30 >= 0.0) ||
-            (trailingReturn < 0.0 &&
-             actual30 < 0.0)
+            valid30 &&
+            (
+                (trailingReturn >= 0.0 &&
+                 actual30 >= 0.0) ||
+                (trailingReturn < 0.0 &&
+                 actual30 < 0.0)
+            )
         )
         {
             ++naiveCorrect30;
         }
 
-
-        if (actual5 >= 0.0)
-            ++actualPositive5;
-
-        if (actual10 >= 0.0)
-            ++actualPositive10;
-
-        if (actual15 >= 0.0)
-            ++actualPositive15;
-
-        if (actual30 >= 0.0)
-            ++actualPositive30;
-
-
         ++metrics.samples;
-
 
         if (metrics.samples <= 5)
         {
@@ -686,12 +751,10 @@ BacktestMetrics runBacktest(
         }
     }
 
-
     if (metrics.samples == 0)
     {
         return metrics;
     }
-
 
     metrics.mae5 =
         error5 /
@@ -709,7 +772,6 @@ BacktestMetrics runBacktest(
         error30 /
         metrics.samples;
 
-
     metrics.directionalAccuracy5 =
         (static_cast<double>(correct5) /
          metrics.samples) * 100.0;
@@ -725,7 +787,6 @@ BacktestMetrics runBacktest(
     metrics.directionalAccuracy30 =
         (static_cast<double>(correct30) /
          metrics.samples) * 100.0;
-
 
     metrics.baseRatePositive5 =
         (static_cast<double>(actualPositive5) /
@@ -743,7 +804,6 @@ BacktestMetrics runBacktest(
         (static_cast<double>(actualPositive30) /
          metrics.samples) * 100.0;
 
-
     metrics.naiveAccuracy5 =
         (static_cast<double>(naiveCorrect5) /
          metrics.samples) * 100.0;
@@ -759,7 +819,6 @@ BacktestMetrics runBacktest(
     metrics.naiveAccuracy30 =
         (static_cast<double>(naiveCorrect30) /
          metrics.samples) * 100.0;
-
 
     metrics.zScore5 =
         calculateZScore(
@@ -785,7 +844,6 @@ BacktestMetrics runBacktest(
             metrics.samples
         );
 
-
     return metrics;
 }
 
@@ -808,7 +866,6 @@ BacktestMetrics runConfidenceBacktest(
 
     metrics.confidenceThreshold =
         confidenceThreshold;
-
 
     if (prices.size() <
         windowSize + 30)
@@ -833,39 +890,38 @@ BacktestMetrics runConfidenceBacktest(
         return metrics;
     }
 
-
     /*
         Initial training boundary.
 
         This is a PRICE INDEX boundary.
-
-        The first test query must have its entire
-        30-day window inside the training boundary.
     */
-
     const std::size_t initialTrainEnd =
         static_cast<std::size_t>(
             static_cast<double>(prices.size())
             * trainRatio
         );
 
-
-    /*
-        We need the query window itself to fit
-        before we reach the initial training boundary.
-    */
-
     if (initialTrainEnd < windowSize)
     {
         return metrics;
     }
 
+    /*
+        The query window ends exactly at the
+        initial training boundary.
 
+        Example:
+
+            window = 30
+            trainEnd = 1731
+
+            query = 1702 -> 1731
+            prediction point = 1731
+    */
     const std::size_t firstTestWindow =
         initialTrainEnd -
         windowSize +
         1;
-
 
     std::cout
         << "\nTrain ratio : "
@@ -882,11 +938,9 @@ BacktestMetrics runConfidenceBacktest(
         << firstTestWindow
         << "\n";
 
-
     /*
         Signal statistics.
     */
-
     std::size_t signals5 = 0;
     std::size_t signals10 = 0;
     std::size_t signals15 = 0;
@@ -902,11 +956,45 @@ BacktestMetrics runConfidenceBacktest(
     double returnWhenSignaled15 = 0.0;
     double returnWhenSignaled30 = 0.0;
 
+    /*
+        P&L statistics.
+    */
+    double totalPnL5 = 0.0;
+    double totalPnL10 = 0.0;
+    double totalPnL15 = 0.0;
+    double totalPnL30 = 0.0;
+
+    double grossProfit5 = 0.0;
+    double grossProfit10 = 0.0;
+    double grossProfit15 = 0.0;
+    double grossProfit30 = 0.0;
+
+    double grossLoss5 = 0.0;
+    double grossLoss10 = 0.0;
+    double grossLoss15 = 0.0;
+    double grossLoss30 = 0.0;
+
+    /*
+        Equity curves for drawdown.
+    */
+    double equity5 = 0.0;
+    double equity10 = 0.0;
+    double equity15 = 0.0;
+    double equity30 = 0.0;
+
+    double peakEquity5 = 0.0;
+    double peakEquity10 = 0.0;
+    double peakEquity15 = 0.0;
+    double peakEquity30 = 0.0;
+
+    double maxDrawdown5 = 0.0;
+    double maxDrawdown10 = 0.0;
+    double maxDrawdown15 = 0.0;
+    double maxDrawdown30 = 0.0;
 
     /*
         Training-only majority statistics.
     */
-
     std::size_t majorityPositive5 = 0;
     std::size_t majorityNegative5 = 0;
 
@@ -919,29 +1007,24 @@ BacktestMetrics runConfidenceBacktest(
     std::size_t majorityPositive30 = 0;
     std::size_t majorityNegative30 = 0;
 
-
     std::size_t majorityCorrect5 = 0;
     std::size_t majorityCorrect10 = 0;
     std::size_t majorityCorrect15 = 0;
     std::size_t majorityCorrect30 = 0;
-
 
     std::size_t actualPositive5 = 0;
     std::size_t actualPositive10 = 0;
     std::size_t actualPositive15 = 0;
     std::size_t actualPositive30 = 0;
 
-
     std::size_t naiveCorrect5 = 0;
     std::size_t naiveCorrect10 = 0;
     std::size_t naiveCorrect15 = 0;
     std::size_t naiveCorrect30 = 0;
 
-
     /*
         Walk forward through the test set.
     */
-
     for (std::size_t currentIndex =
              firstTestWindow;
 
@@ -950,29 +1033,15 @@ BacktestMetrics runConfidenceBacktest(
 
          currentIndex += step)
     {
-        /*
-            Need the entire query window and
-            future horizon available.
-        */
-
-        const std::size_t
-            currentPriceIndex =
-                currentIndex +
-                windowSize - 1;
+        const std::size_t currentPriceIndex =
+            currentIndex +
+            windowSize - 1;
 
         if (currentPriceIndex + 30 >=
             prices.size())
         {
             break;
         }
-
-
-        /*
-            Calculate PatternX separately for each
-            horizon because a historical pattern is
-            usable only when its corresponding future
-            outcome was known before the query.
-        */
 
         std::vector<WeightedMatch>
             matches5;
@@ -986,96 +1055,106 @@ BacktestMetrics runConfidenceBacktest(
         std::vector<WeightedMatch>
             matches30;
 
+        /*
+            IMPORTANT:
 
-        if (!buildMatches(
+            Do NOT discard the entire sample if
+            one horizon cannot build matches.
+        */
+        const bool valid5 =
+            buildMatches(
                 prices,
                 currentIndex,
                 windowSize,
                 topK,
                 5,
-                matches5))
-        {
-            continue;
-        }
+                matches5
+            );
 
-
-        if (!buildMatches(
+        const bool valid10 =
+            buildMatches(
                 prices,
                 currentIndex,
                 windowSize,
                 topK,
                 10,
-                matches10))
-        {
-            continue;
-        }
+                matches10
+            );
 
-
-        if (!buildMatches(
+        const bool valid15 =
+            buildMatches(
                 prices,
                 currentIndex,
                 windowSize,
                 topK,
                 15,
-                matches15))
-        {
-            continue;
-        }
+                matches15
+            );
 
-
-        if (!buildMatches(
+        const bool valid30 =
+            buildMatches(
                 prices,
                 currentIndex,
                 windowSize,
                 topK,
                 30,
-                matches30))
+                matches30
+            );
+
+        if (!valid5 &&
+            !valid10 &&
+            !valid15 &&
+            !valid30)
         {
             continue;
         }
 
-
         /*
             PatternX weighted predictions.
         */
-
         const double prediction5 =
-            calculateWeightedPredictionFromMatches(
-                prices,
-                matches5,
-                windowSize,
-                5
-            );
+            valid5
+                ? calculateWeightedPredictionFromMatches(
+                    prices,
+                    matches5,
+                    windowSize,
+                    5
+                  )
+                : 0.0;
 
         const double prediction10 =
-            calculateWeightedPredictionFromMatches(
-                prices,
-                matches10,
-                windowSize,
-                10
-            );
+            valid10
+                ? calculateWeightedPredictionFromMatches(
+                    prices,
+                    matches10,
+                    windowSize,
+                    10
+                  )
+                : 0.0;
 
         const double prediction15 =
-            calculateWeightedPredictionFromMatches(
-                prices,
-                matches15,
-                windowSize,
-                15
-            );
+            valid15
+                ? calculateWeightedPredictionFromMatches(
+                    prices,
+                    matches15,
+                    windowSize,
+                    15
+                  )
+                : 0.0;
 
         const double prediction30 =
-            calculateWeightedPredictionFromMatches(
-                prices,
-                matches30,
-                windowSize,
-                30
-            );
-
+            valid30
+                ? calculateWeightedPredictionFromMatches(
+                    prices,
+                    matches30,
+                    windowSize,
+                    30
+                  )
+                : 0.0;
 
         /*
             Actual test returns.
         */
-
         const double actual5 =
             calculateReturn(
                 prices,
@@ -1104,136 +1183,222 @@ BacktestMetrics runConfidenceBacktest(
                 30
             );
 
-
         /*
             Confidence.
-
-            IMPORTANT:
-            These confidence values are calculated
-            ONLY from historical matches available
-            at this test point.
         */
+        ConfidenceResult confidence5{};
+        ConfidenceResult confidence10{};
+        ConfidenceResult confidence15{};
+        ConfidenceResult confidence30{};
 
-        const ConfidenceResult confidence5 =
-            calculateConfidence(
-                prices,
-                matches5,
-                windowSize,
-                confidenceThreshold
-            );
+        if (valid5)
+        {
+            confidence5 =
+                calculateConfidence(
+                    prices,
+                    matches5,
+                    windowSize,
+                    confidenceThreshold
+                );
+        }
 
-        const ConfidenceResult confidence10 =
-            calculateConfidence(
-                prices,
-                matches10,
-                windowSize,
-                confidenceThreshold
-            );
+        if (valid10)
+        {
+            confidence10 =
+                calculateConfidence(
+                    prices,
+                    matches10,
+                    windowSize,
+                    confidenceThreshold
+                );
+        }
 
-        const ConfidenceResult confidence15 =
-            calculateConfidence(
-                prices,
-                matches15,
-                windowSize,
-                confidenceThreshold
-            );
+        if (valid15)
+        {
+            confidence15 =
+                calculateConfidence(
+                    prices,
+                    matches15,
+                    windowSize,
+                    confidenceThreshold
+                );
+        }
 
-        const ConfidenceResult confidence30 =
-            calculateConfidence(
-                prices,
-                matches30,
-                windowSize,
-                confidenceThreshold
-            );
-
+        if (valid30)
+        {
+            confidence30 =
+                calculateConfidence(
+                    prices,
+                    matches30,
+                    windowSize,
+                    confidenceThreshold
+                );
+        }
 
         /*
-            Confidence signals.
+        ========================================================
+        +5 SIGNAL
+        ========================================================
         */
-
-        if (confidence5.confidence5.signal)
+        if (valid5 &&
+            confidence5.confidence5.signal)
         {
             ++signals5;
 
-            if (
-                (confidence5.confidence5.predictedPositive &&
-                 actual5 > 0.0)
-                ||
-                (!confidence5.confidence5.predictedPositive &&
-                 actual5 < 0.0)
-            )
+            const bool predictedPositive =
+                confidence5
+                    .confidence5
+                    .predictedPositive;
+
+            const double tradeReturn =
+                calculateDirectionalTradeReturn(
+                    prices,
+                    currentPriceIndex,
+                    5,
+                    predictedPositive
+                );
+
+            totalPnL5 += tradeReturn;
+
+            if (tradeReturn > 0.0)
             {
                 ++correctSignals5;
+                grossProfit5 += tradeReturn;
+            }
+            else if (tradeReturn < 0.0)
+            {
+                grossLoss5 +=
+                    std::abs(tradeReturn);
             }
 
-            returnWhenSignaled5 += actual5;
+            returnWhenSignaled5 +=
+                actual5;
         }
 
-
-        if (confidence10.confidence10.signal)
+        /*
+        ========================================================
+        +10 SIGNAL
+        ========================================================
+        */
+        if (valid10 &&
+            confidence10.confidence10.signal)
         {
             ++signals10;
 
-            if (
-                (confidence10.confidence10.predictedPositive &&
-                 actual10 > 0.0)
-                ||
-                (!confidence10.confidence10.predictedPositive &&
-                 actual10 < 0.0)
-            )
+            const bool predictedPositive =
+                confidence10
+                    .confidence10
+                    .predictedPositive;
+
+            const double tradeReturn =
+                calculateDirectionalTradeReturn(
+                    prices,
+                    currentPriceIndex,
+                    10,
+                    predictedPositive
+                );
+
+            totalPnL10 += tradeReturn;
+
+            if (tradeReturn > 0.0)
             {
                 ++correctSignals10;
+                grossProfit10 += tradeReturn;
+            }
+            else if (tradeReturn < 0.0)
+            {
+                grossLoss10 +=
+                    std::abs(tradeReturn);
             }
 
-            returnWhenSignaled10 += actual10;
+            returnWhenSignaled10 +=
+                actual10;
         }
 
-
-        if (confidence15.confidence15.signal)
+        /*
+        ========================================================
+        +15 SIGNAL
+        ========================================================
+        */
+        if (valid15 &&
+            confidence15.confidence15.signal)
         {
             ++signals15;
 
-            if (
-                (confidence15.confidence15.predictedPositive &&
-                 actual15 > 0.0)
-                ||
-                (!confidence15.confidence15.predictedPositive &&
-                 actual15 < 0.0)
-            )
+            const bool predictedPositive =
+                confidence15
+                    .confidence15
+                    .predictedPositive;
+
+            const double tradeReturn =
+                calculateDirectionalTradeReturn(
+                    prices,
+                    currentPriceIndex,
+                    15,
+                    predictedPositive
+                );
+
+            totalPnL15 += tradeReturn;
+
+            if (tradeReturn > 0.0)
             {
                 ++correctSignals15;
+                grossProfit15 += tradeReturn;
+            }
+            else if (tradeReturn < 0.0)
+            {
+                grossLoss15 +=
+                    std::abs(tradeReturn);
             }
 
-            returnWhenSignaled15 += actual15;
+            returnWhenSignaled15 +=
+                actual15;
         }
 
-
-        if (confidence30.confidence30.signal)
+        /*
+        ========================================================
+        +30 SIGNAL
+        ========================================================
+        */
+        if (valid30 &&
+            confidence30.confidence30.signal)
         {
             ++signals30;
 
-            if (
-                (confidence30.confidence30.predictedPositive &&
-                 actual30 > 0.0)
-                ||
-                (!confidence30.confidence30.predictedPositive &&
-                 actual30 < 0.0)
-            )
+            const bool predictedPositive =
+                confidence30
+                    .confidence30
+                    .predictedPositive;
+
+            const double tradeReturn =
+                calculateDirectionalTradeReturn(
+                    prices,
+                    currentPriceIndex,
+                    30,
+                    predictedPositive
+                );
+
+            totalPnL30 += tradeReturn;
+
+            if (tradeReturn > 0.0)
             {
                 ++correctSignals30;
+                grossProfit30 += tradeReturn;
+            }
+            else if (tradeReturn < 0.0)
+            {
+                grossLoss30 +=
+                    std::abs(tradeReturn);
             }
 
-            returnWhenSignaled30 += actual30;
+            returnWhenSignaled30 +=
+                actual30;
         }
 
-
         /*
-            Training-only majority baseline.
-
-            Training data ends at currentIndex.
-
-            We deliberately don't use any future test
-            information here.
+        ========================================================
+        MAJORITY BASELINE
+        ========================================================
         */
 
         majorityPositive5 = 0;
@@ -1248,27 +1413,22 @@ BacktestMetrics runConfidenceBacktest(
         majorityPositive30 = 0;
         majorityNegative30 = 0;
 
-
-        /*
-            Only count historical outcomes whose
-            complete future is before currentIndex.
-        */
-
         for (std::size_t j = 0;
              j < currentIndex;
              ++j)
         {
-            const std::size_t
-                historicalEnd =
-                    j + windowSize - 1;
+            const std::size_t historicalEnd =
+                j + windowSize - 1;
 
-
+            /*
+                Complete future must be known before
+                the current query begins.
+            */
             if (historicalEnd + 30 >=
                 currentIndex)
             {
                 continue;
             }
-
 
             const double r5 =
                 calculateReturn(
@@ -1298,31 +1458,26 @@ BacktestMetrics runConfidenceBacktest(
                     30
                 );
 
-
             if (r5 > 0.0)
                 ++majorityPositive5;
             else if (r5 < 0.0)
                 ++majorityNegative5;
-
 
             if (r10 > 0.0)
                 ++majorityPositive10;
             else if (r10 < 0.0)
                 ++majorityNegative10;
 
-
             if (r15 > 0.0)
                 ++majorityPositive15;
             else if (r15 < 0.0)
                 ++majorityNegative15;
-
 
             if (r30 > 0.0)
                 ++majorityPositive30;
             else if (r30 < 0.0)
                 ++majorityNegative30;
         }
-
 
         const bool majorityPrediction5 =
             majorityPositive5 >=
@@ -1340,59 +1495,59 @@ BacktestMetrics runConfidenceBacktest(
             majorityPositive30 >=
             majorityNegative30;
 
-
-        if (
-            (majorityPrediction5 &&
-             actual5 > 0.0)
-            ||
-            (!majorityPrediction5 &&
-             actual5 < 0.0)
-        )
+        if (valid5 &&
+            (
+                (majorityPrediction5 &&
+                 actual5 > 0.0)
+                ||
+                (!majorityPrediction5 &&
+                 actual5 < 0.0)
+            ))
         {
             ++majorityCorrect5;
         }
 
-
-        if (
-            (majorityPrediction10 &&
-             actual10 > 0.0)
-            ||
-            (!majorityPrediction10 &&
-             actual10 < 0.0)
-        )
+        if (valid10 &&
+            (
+                (majorityPrediction10 &&
+                 actual10 > 0.0)
+                ||
+                (!majorityPrediction10 &&
+                 actual10 < 0.0)
+            ))
         {
             ++majorityCorrect10;
         }
 
-
-        if (
-            (majorityPrediction15 &&
-             actual15 > 0.0)
-            ||
-            (!majorityPrediction15 &&
-             actual15 < 0.0)
-        )
+        if (valid15 &&
+            (
+                (majorityPrediction15 &&
+                 actual15 > 0.0)
+                ||
+                (!majorityPrediction15 &&
+                 actual15 < 0.0)
+            ))
         {
             ++majorityCorrect15;
         }
 
-
-        if (
-            (majorityPrediction30 &&
-             actual30 > 0.0)
-            ||
-            (!majorityPrediction30 &&
-             actual30 < 0.0)
-        )
+        if (valid30 &&
+            (
+                (majorityPrediction30 &&
+                 actual30 > 0.0)
+                ||
+                (!majorityPrediction30 &&
+                 actual30 < 0.0)
+            ))
         {
             ++majorityCorrect30;
         }
 
-
         /*
-            Naive trailing 5-day momentum.
+        ========================================================
+        NAIVE MOMENTUM
+        ========================================================
         */
-
         const double trailingReturn =
             calculateTrailingReturn(
                 prices,
@@ -1400,58 +1555,64 @@ BacktestMetrics runConfidenceBacktest(
                 5
             );
 
-
         const bool momentumPositive =
             trailingReturn >= 0.0;
 
-
         if (
-            (momentumPositive &&
-             actual5 > 0.0)
-            ||
-            (!momentumPositive &&
-             actual5 < 0.0)
+            valid5 &&
+            (
+                (momentumPositive &&
+                 actual5 > 0.0)
+                ||
+                (!momentumPositive &&
+                 actual5 < 0.0)
+            )
         )
         {
             ++naiveCorrect5;
         }
 
-
         if (
-            (momentumPositive &&
-             actual10 > 0.0)
-            ||
-            (!momentumPositive &&
-             actual10 < 0.0)
+            valid10 &&
+            (
+                (momentumPositive &&
+                 actual10 > 0.0)
+                ||
+                (!momentumPositive &&
+                 actual10 < 0.0)
+            )
         )
         {
             ++naiveCorrect10;
         }
 
-
         if (
-            (momentumPositive &&
-             actual15 > 0.0)
-            ||
-            (!momentumPositive &&
-             actual15 < 0.0)
+            valid15 &&
+            (
+                (momentumPositive &&
+                 actual15 > 0.0)
+                ||
+                (!momentumPositive &&
+                 actual15 < 0.0)
+            )
         )
         {
             ++naiveCorrect15;
         }
 
-
         if (
-            (momentumPositive &&
-             actual30 > 0.0)
-            ||
-            (!momentumPositive &&
-             actual30 < 0.0)
+            valid30 &&
+            (
+                (momentumPositive &&
+                 actual30 > 0.0)
+                ||
+                (!momentumPositive &&
+                 actual30 < 0.0)
+            )
         )
         {
             ++naiveCorrect30;
         }
-
 
         if (actual5 > 0.0)
             ++actualPositive5;
@@ -1465,14 +1626,122 @@ BacktestMetrics runConfidenceBacktest(
         if (actual30 > 0.0)
             ++actualPositive30;
 
+        /*
+        ========================================================
+        EQUITY / DRAWDOWN
+        ========================================================
+        */
+        if (valid5 &&
+            confidence5.confidence5.signal)
+        {
+            equity5 +=
+                calculateDirectionalTradeReturn(
+                    prices,
+                    currentPriceIndex,
+                    5,
+                    confidence5
+                        .confidence5
+                        .predictedPositive
+                );
+
+            peakEquity5 =
+                std::max(
+                    peakEquity5,
+                    equity5
+                );
+
+            maxDrawdown5 =
+                std::max(
+                    maxDrawdown5,
+                    peakEquity5 - equity5
+                );
+        }
+
+        if (valid10 &&
+            confidence10.confidence10.signal)
+        {
+            equity10 +=
+                calculateDirectionalTradeReturn(
+                    prices,
+                    currentPriceIndex,
+                    10,
+                    confidence10
+                        .confidence10
+                        .predictedPositive
+                );
+
+            peakEquity10 =
+                std::max(
+                    peakEquity10,
+                    equity10
+                );
+
+            maxDrawdown10 =
+                std::max(
+                    maxDrawdown10,
+                    peakEquity10 - equity10
+                );
+        }
+
+        if (valid15 &&
+            confidence15.confidence15.signal)
+        {
+            equity15 +=
+                calculateDirectionalTradeReturn(
+                    prices,
+                    currentPriceIndex,
+                    15,
+                    confidence15
+                        .confidence15
+                        .predictedPositive
+                );
+
+            peakEquity15 =
+                std::max(
+                    peakEquity15,
+                    equity15
+                );
+
+            maxDrawdown15 =
+                std::max(
+                    maxDrawdown15,
+                    peakEquity15 - equity15
+                );
+        }
+
+        if (valid30 &&
+            confidence30.confidence30.signal)
+        {
+            equity30 +=
+                calculateDirectionalTradeReturn(
+                    prices,
+                    currentPriceIndex,
+                    30,
+                    confidence30
+                        .confidence30
+                        .predictedPositive
+                );
+
+            peakEquity30 =
+                std::max(
+                    peakEquity30,
+                    equity30
+                );
+
+            maxDrawdown30 =
+                std::max(
+                    maxDrawdown30,
+                    peakEquity30 - equity30
+                );
+        }
 
         ++metrics.samples;
 
-
         /*
-            Print first five examples.
+        ========================================================
+        FIRST FIVE SAMPLES
+        ========================================================
         */
-
         if (metrics.samples <= 5)
         {
             std::cout
@@ -1486,83 +1755,115 @@ BacktestMetrics runConfidenceBacktest(
                 << "\n";
 
             std::cout
-                << "+5  Predicted: "
-                << prediction5
-                << "% | Actual: "
-                << actual5
-                << "% | Confidence: "
-                << confidence5.confidence5.confidence * 100.0
-                << "% | "
-                << (
-                    confidence5.confidence5.signal
-                    ? "SIGNAL"
-                    : "NO SIGNAL"
-                )
+                << "Prediction price index: "
+                << currentPriceIndex
                 << "\n";
 
-            std::cout
-                << "+10 Predicted: "
-                << prediction10
-                << "% | Actual: "
-                << actual10
-                << "% | Confidence: "
-                << confidence10.confidence10.confidence * 100.0
-                << "% | "
-                << (
-                    confidence10.confidence10.signal
-                    ? "SIGNAL"
-                    : "NO SIGNAL"
-                )
-                << "\n";
+            if (valid5)
+            {
+                std::cout
+                    << "+5  Predicted: "
+                    << prediction5
+                    << "% | Actual: "
+                    << actual5
+                    << "% | Confidence: "
+                    << confidence5
+                        .confidence5
+                        .confidence * 100.0
+                    << "% | "
+                    << (
+                        confidence5
+                            .confidence5
+                            .signal
+                        ? "SIGNAL"
+                        : "NO SIGNAL"
+                    )
+                    << "\n";
+            }
 
-            std::cout
-                << "+15 Predicted: "
-                << prediction15
-                << "% | Actual: "
-                << actual15
-                << "% | Confidence: "
-                << confidence15.confidence15.confidence * 100.0
-                << "% | "
-                << (
-                    confidence15.confidence15.signal
-                    ? "SIGNAL"
-                    : "NO SIGNAL"
-                )
-                << "\n";
+            if (valid10)
+            {
+                std::cout
+                    << "+10 Predicted: "
+                    << prediction10
+                    << "% | Actual: "
+                    << actual10
+                    << "% | Confidence: "
+                    << confidence10
+                        .confidence10
+                        .confidence * 100.0
+                    << "% | "
+                    << (
+                        confidence10
+                            .confidence10
+                            .signal
+                        ? "SIGNAL"
+                        : "NO SIGNAL"
+                    )
+                    << "\n";
+            }
 
-            std::cout
-                << "+30 Predicted: "
-                << prediction30
-                << "% | Actual: "
-                << actual30
-                << "% | Confidence: "
-                << confidence30.confidence30.confidence * 100.0
-                << "% | "
-                << (
-                    confidence30.confidence30.signal
-                    ? "SIGNAL"
-                    : "NO SIGNAL"
-                )
-                << "\n";
+            if (valid15)
+            {
+                std::cout
+                    << "+15 Predicted: "
+                    << prediction15
+                    << "% | Actual: "
+                    << actual15
+                    << "% | Confidence: "
+                    << confidence15
+                        .confidence15
+                        .confidence * 100.0
+                    << "% | "
+                    << (
+                        confidence15
+                            .confidence15
+                            .signal
+                        ? "SIGNAL"
+                        : "NO SIGNAL"
+                    )
+                    << "\n";
+            }
+
+            if (valid30)
+            {
+                std::cout
+                    << "+30 Predicted: "
+                    << prediction30
+                    << "% | Actual: "
+                    << actual30
+                    << "% | Confidence: "
+                    << confidence30
+                        .confidence30
+                        .confidence * 100.0
+                    << "% | "
+                    << (
+                        confidence30
+                            .confidence30
+                            .signal
+                        ? "SIGNAL"
+                        : "NO SIGNAL"
+                    )
+                    << "\n";
+            }
         }
     }
-
 
     if (metrics.samples == 0)
     {
         return metrics;
     }
 
-
     /*
-        Coverage.
+    ========================================================
+    COVERAGE
+    ========================================================
     */
 
     metrics.signals5 = signals5;
     metrics.signals10 = signals10;
     metrics.signals15 = signals15;
     metrics.signals30 = signals30;
-
 
     metrics.coverage5 =
         static_cast<double>(signals5) /
@@ -1580,15 +1881,18 @@ BacktestMetrics runConfidenceBacktest(
         static_cast<double>(signals30) /
         metrics.samples * 100.0;
 
-
     /*
-        Accuracy when a signal actually exists.
+    ========================================================
+    SIGNAL ACCURACY
+    ========================================================
     */
 
     if (signals5 > 0)
     {
         metrics.signalAccuracy5 =
-            static_cast<double>(correctSignals5) /
+            static_cast<double>(
+                correctSignals5
+            ) /
             signals5 * 100.0;
 
         metrics.averageReturnWhenSignaled5 =
@@ -1596,11 +1900,12 @@ BacktestMetrics runConfidenceBacktest(
             static_cast<double>(signals5);
     }
 
-
     if (signals10 > 0)
     {
         metrics.signalAccuracy10 =
-            static_cast<double>(correctSignals10) /
+            static_cast<double>(
+                correctSignals10
+            ) /
             signals10 * 100.0;
 
         metrics.averageReturnWhenSignaled10 =
@@ -1608,11 +1913,12 @@ BacktestMetrics runConfidenceBacktest(
             static_cast<double>(signals10);
     }
 
-
     if (signals15 > 0)
     {
         metrics.signalAccuracy15 =
-            static_cast<double>(correctSignals15) /
+            static_cast<double>(
+                correctSignals15
+            ) /
             signals15 * 100.0;
 
         metrics.averageReturnWhenSignaled15 =
@@ -1620,11 +1926,12 @@ BacktestMetrics runConfidenceBacktest(
             static_cast<double>(signals15);
     }
 
-
     if (signals30 > 0)
     {
         metrics.signalAccuracy30 =
-            static_cast<double>(correctSignals30) /
+            static_cast<double>(
+                correctSignals30
+            ) /
             signals30 * 100.0;
 
         metrics.averageReturnWhenSignaled30 =
@@ -1632,86 +1939,214 @@ BacktestMetrics runConfidenceBacktest(
             static_cast<double>(signals30);
     }
 
-
     /*
-        PatternX full-test directional accuracy.
-
-        These remain included so we can compare:
-
-        PatternX vs confidence-filtered PatternX.
+    ========================================================
+    P&L
+    ========================================================
     */
 
-    /*
-        For this function we calculate these from
-        the signal direction only when available.
-        The actual prediction direction is still
-        represented by the weighted prediction.
-    */
+    metrics.totalReturn5 =
+        totalPnL5;
+
+    metrics.totalReturn10 =
+        totalPnL10;
+
+    metrics.totalReturn15 =
+        totalPnL15;
+
+    metrics.totalReturn30 =
+        totalPnL30;
+
+    if (signals5 > 0)
+    {
+        metrics.averageTradeReturn5 =
+            totalPnL5 /
+            static_cast<double>(signals5);
+
+        metrics.winRate5 =
+            static_cast<double>(
+                correctSignals5
+            ) /
+            signals5 * 100.0;
+    }
+
+    if (signals10 > 0)
+    {
+        metrics.averageTradeReturn10 =
+            totalPnL10 /
+            static_cast<double>(signals10);
+
+        metrics.winRate10 =
+            static_cast<double>(
+                correctSignals10
+            ) /
+            signals10 * 100.0;
+    }
+
+    if (signals15 > 0)
+    {
+        metrics.averageTradeReturn15 =
+            totalPnL15 /
+            static_cast<double>(signals15);
+
+        metrics.winRate15 =
+            static_cast<double>(
+                correctSignals15
+            ) /
+            signals15 * 100.0;
+    }
+
+    if (signals30 > 0)
+    {
+        metrics.averageTradeReturn30 =
+            totalPnL30 /
+            static_cast<double>(signals30);
+
+        metrics.winRate30 =
+            static_cast<double>(
+                correctSignals30
+            ) /
+            signals30 * 100.0;
+    }
 
     /*
-        Training-only majority.
+    ========================================================
+    PROFIT FACTOR
+    ========================================================
+    */
+
+    metrics.profitFactor5 =
+        grossLoss5 > 0.0
+            ? grossProfit5 / grossLoss5
+            : 0.0;
+
+    metrics.profitFactor10 =
+        grossLoss10 > 0.0
+            ? grossProfit10 / grossLoss10
+            : 0.0;
+
+    metrics.profitFactor15 =
+        grossLoss15 > 0.0
+            ? grossProfit15 / grossLoss15
+            : 0.0;
+
+    metrics.profitFactor30 =
+        grossLoss30 > 0.0
+            ? grossProfit30 / grossLoss30
+            : 0.0;
+
+    /*
+    ========================================================
+    MAX DRAWDOWN
+    ========================================================
+    */
+
+    metrics.maxDrawdown5 =
+        maxDrawdown5;
+
+    metrics.maxDrawdown10 =
+        maxDrawdown10;
+
+    metrics.maxDrawdown15 =
+        maxDrawdown15;
+
+    metrics.maxDrawdown30 =
+        maxDrawdown30;
+
+    /*
+    ========================================================
+    BASE RATE
+    ========================================================
     */
 
     metrics.baseRatePositive5 =
-        static_cast<double>(actualPositive5) /
+        static_cast<double>(
+            actualPositive5
+        ) /
         metrics.samples * 100.0;
 
     metrics.baseRatePositive10 =
-        static_cast<double>(actualPositive10) /
+        static_cast<double>(
+            actualPositive10
+        ) /
         metrics.samples * 100.0;
 
     metrics.baseRatePositive15 =
-        static_cast<double>(actualPositive15) /
+        static_cast<double>(
+            actualPositive15
+        ) /
         metrics.samples * 100.0;
 
     metrics.baseRatePositive30 =
-        static_cast<double>(actualPositive30) /
+        static_cast<double>(
+            actualPositive30
+        ) /
         metrics.samples * 100.0;
 
+    /*
+    ========================================================
+    NAIVE ACCURACY
+    ========================================================
+    */
 
     metrics.naiveAccuracy5 =
-        static_cast<double>(naiveCorrect5) /
+        static_cast<double>(
+            naiveCorrect5
+        ) /
         metrics.samples * 100.0;
 
     metrics.naiveAccuracy10 =
-        static_cast<double>(naiveCorrect10) /
+        static_cast<double>(
+            naiveCorrect10
+        ) /
         metrics.samples * 100.0;
 
     metrics.naiveAccuracy15 =
-        static_cast<double>(naiveCorrect15) /
+        static_cast<double>(
+            naiveCorrect15
+        ) /
         metrics.samples * 100.0;
 
     metrics.naiveAccuracy30 =
-        static_cast<double>(naiveCorrect30) /
+        static_cast<double>(
+            naiveCorrect30
+        ) /
         metrics.samples * 100.0;
 
-
     /*
-        Majority accuracy.
+    ========================================================
+    MAJORITY ACCURACY
+    ========================================================
     */
 
     metrics.directionalAccuracy5 =
-        static_cast<double>(majorityCorrect5) /
+        static_cast<double>(
+            majorityCorrect5
+        ) /
         metrics.samples * 100.0;
 
     metrics.directionalAccuracy10 =
-        static_cast<double>(majorityCorrect10) /
+        static_cast<double>(
+            majorityCorrect10
+        ) /
         metrics.samples * 100.0;
 
     metrics.directionalAccuracy15 =
-        static_cast<double>(majorityCorrect15) /
+        static_cast<double>(
+            majorityCorrect15
+        ) /
         metrics.samples * 100.0;
 
     metrics.directionalAccuracy30 =
-        static_cast<double>(majorityCorrect30) /
+        static_cast<double>(
+            majorityCorrect30
+        ) /
         metrics.samples * 100.0;
 
-
     /*
-        Z-score for the confidence signals.
-
-        Here we use the number of actual signals,
-        not the entire test set.
+    ========================================================
+    Z-SCORE
+    ========================================================
     */
 
     metrics.zScore5 =
@@ -1738,6 +2173,115 @@ BacktestMetrics runConfidenceBacktest(
             signals30
         );
 
+    /*
+    ========================================================
+    FINAL REPORT
+    ========================================================
+    */
+
+    std::cout
+        << "\n============================================\n"
+        << "CONFIDENCE BACKTEST RESULTS\n"
+        << "============================================\n";
+
+    std::cout
+        << "Threshold : "
+        << confidenceThreshold * 100.0
+        << "%\n\n";
+
+    std::cout
+        << "## Horizon       Signals       Coverage"
+        << "       Accuracy       Avg Return"
+        << "       Total P&L       Profit Factor"
+        << "       Max Drawdown\n";
+
+    std::cout
+        << "+5 days       "
+        << signals5
+        << "             "
+        << metrics.coverage5
+        << "%          "
+        << metrics.signalAccuracy5
+        << "%          "
+        << metrics.averageTradeReturn5
+        << "%          "
+        << metrics.totalReturn5
+        << "%          "
+        << metrics.profitFactor5
+        << "          "
+        << metrics.maxDrawdown5
+        << "%\n";
+
+    std::cout
+        << "+10 days      "
+        << signals10
+        << "             "
+        << metrics.coverage10
+        << "%          "
+        << metrics.signalAccuracy10
+        << "%          "
+        << metrics.averageTradeReturn10
+        << "%          "
+        << metrics.totalReturn10
+        << "%          "
+        << metrics.profitFactor10
+        << "          "
+        << metrics.maxDrawdown10
+        << "%\n";
+
+    std::cout
+        << "+15 days      "
+        << signals15
+        << "             "
+        << metrics.coverage15
+        << "%          "
+        << metrics.signalAccuracy15
+        << "%          "
+        << metrics.averageTradeReturn15
+        << "%          "
+        << metrics.totalReturn15
+        << "%          "
+        << metrics.profitFactor15
+        << "          "
+        << metrics.maxDrawdown15
+        << "%\n";
+
+    std::cout
+        << "+30 days      "
+        << signals30
+        << "             "
+        << metrics.coverage30
+        << "%          "
+        << metrics.signalAccuracy30
+        << "%          "
+        << metrics.averageTradeReturn30
+        << "%          "
+        << metrics.totalReturn30
+        << "%          "
+        << metrics.profitFactor30
+        << "          "
+        << metrics.maxDrawdown30
+        << "%\n";
+
+    std::cout
+        << "\nZ-score +5  : "
+        << metrics.zScore5
+        << "\n";
+
+    std::cout
+        << "Z-score +10 : "
+        << metrics.zScore10
+        << "\n";
+
+    std::cout
+        << "Z-score +15 : "
+        << metrics.zScore15
+        << "\n";
+
+    std::cout
+        << "Z-score +30 : "
+        << metrics.zScore30
+        << "\n";
 
     return metrics;
 }

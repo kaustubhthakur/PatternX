@@ -6,16 +6,18 @@
 
 #include "WeightedRanking.hpp"
 
+
 struct HorizonConfidence
 {
-    double confidence;
+    double confidence = 0.0;
 
-    double positiveWeight;
-    double negativeWeight;
+    double positiveWeight = 0.0;
+    double negativeWeight = 0.0;
 
-    bool signal;
-    bool predictedPositive;
+    bool signal = false;
+    bool predictedPositive = false;
 };
+
 
 struct ConfidenceResult
 {
@@ -24,6 +26,7 @@ struct ConfidenceResult
     HorizonConfidence confidence15;
     HorizonConfidence confidence30;
 };
+
 
 ConfidenceResult calculateConfidence(
     const std::vector<double>& prices,
