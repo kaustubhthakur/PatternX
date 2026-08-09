@@ -44,7 +44,6 @@ double calculateReturn(
 }
 
 
-
 double calculateTrailingReturn(
     const std::vector<double>& prices,
     std::size_t priceIndex,
@@ -75,7 +74,6 @@ double calculateTrailingReturn(
 }
 
 
-
 double calculateZScore(
     double accuracyPercent,
     std::size_t n
@@ -101,6 +99,7 @@ double calculateZScore(
 }
 
 
+
 double calculateWeightedPrediction(
     const std::vector<double>& prices,
     std::size_t currentIndex,
@@ -109,8 +108,6 @@ double calculateWeightedPrediction(
     std::size_t horizon
 )
 {
-  
-
     std::vector<std::vector<double>> signatures;
     std::vector<std::vector<double>> windows;
 
@@ -136,8 +133,6 @@ double calculateWeightedPrediction(
             computeMagnitude(fftResult);
 
         signatures.push_back(magnitude);
-
-    
         windows.push_back(window);
     }
 
@@ -146,9 +141,6 @@ double calculateWeightedPrediction(
 
     const std::vector<double>& currentWindow =
         windows[currentIndex];
-
-
- 
 
     std::vector<std::vector<double>>
         historicalSignatures;
@@ -190,11 +182,6 @@ double calculateWeightedPrediction(
         return 0.0;
     }
 
-
-    /*
-        Find similar historical patterns.
-    */
-
     std::vector<PatternMatch> matches =
         findTopMatches(
             currentSignature,
@@ -210,9 +197,6 @@ double calculateWeightedPrediction(
     {
         return 0.0;
     }
-
-
-  
 
     std::vector<std::size_t> windowIndices;
     std::vector<double> distances;
@@ -231,11 +215,6 @@ double calculateWeightedPrediction(
         );
     }
 
-
-    /*
-        Distance-based weighting.
-    */
-
     std::vector<WeightedMatch>
         weightedMatches =
             calculateWeights(
@@ -247,11 +226,6 @@ double calculateWeightedPrediction(
     {
         return 0.0;
     }
-
-
-    /*
-        Weighted future return prediction.
-    */
 
     double prediction = 0.0;
 
@@ -278,6 +252,138 @@ double calculateWeightedPrediction(
     return prediction;
 }
 
+
+
+bool calculateMajorityPrediction(
+    const std::vector<double>& prices,
+    std::size_t currentIndex,
+    std::size_t windowSize,
+    std::size_t topK,
+    std::size_t horizon
+)
+{
+    std::vector<std::vector<double>> signatures;
+    std::vector<std::vector<double>> windows;
+
+    signatures.reserve(currentIndex + 1);
+    windows.reserve(currentIndex + 1);
+
+    for (std::size_t start = 0;
+         start <= currentIndex;
+         ++start)
+    {
+        std::vector<double> window(
+            prices.begin() + start,
+            prices.begin() + start + windowSize
+        );
+
+        std::vector<double> normalized =
+            normalizeWindow(window);
+
+        std::vector<std::complex<double>> fftResult =
+            computeFFT(normalized);
+
+        std::vector<double> magnitude =
+            computeMagnitude(fftResult);
+
+        signatures.push_back(magnitude);
+        windows.push_back(window);
+    }
+
+    const std::vector<double>& currentSignature =
+        signatures[currentIndex];
+
+    const std::vector<double>& currentWindow =
+        windows[currentIndex];
+
+    std::vector<std::vector<double>>
+        historicalSignatures;
+
+    std::vector<std::vector<double>>
+        historicalWindows;
+
+    std::vector<std::size_t>
+        historicalIndices;
+
+    for (std::size_t j = 0;
+         j < currentIndex;
+         ++j)
+    {
+        std::size_t futureIndex =
+            j + windowSize - 1 + horizon;
+
+        /*
+            Same leak-prevention rule as the existing
+            weighted prediction.
+        */
+        if (futureIndex >= currentIndex)
+        {
+            continue;
+        }
+
+        historicalSignatures.push_back(
+            signatures[j]
+        );
+
+        historicalWindows.push_back(
+            windows[j]
+        );
+
+        historicalIndices.push_back(j);
+    }
+
+    if (historicalSignatures.empty())
+    {
+        return false;
+    }
+
+    std::vector<PatternMatch> matches =
+        findTopMatches(
+            currentSignature,
+            historicalSignatures,
+            currentWindow,
+            historicalWindows,
+            currentIndex,
+            topK,
+            windowSize
+        );
+
+    if (matches.empty())
+    {
+        return false;
+    }
+
+    std::size_t positiveMatches = 0;
+    std::size_t negativeMatches = 0;
+
+    for (const auto& match : matches)
+    {
+        std::size_t historicalWindow =
+            historicalIndices[match.windowIndex];
+
+        std::size_t endPriceIndex =
+            historicalWindow + windowSize - 1;
+
+        double historicalReturn =
+            calculateReturn(
+                prices,
+                endPriceIndex,
+                horizon
+            );
+
+        if (historicalReturn >= 0.0)
+        {
+            ++positiveMatches;
+        }
+        else
+        {
+            ++negativeMatches;
+        }
+    }
+
+    return positiveMatches >= negativeMatches;
+}
+
 } // namespace
 
 
@@ -301,7 +407,6 @@ BacktestMetrics runBacktest(
         step = 1;
     }
 
-
     double error5 = 0.0;
     double error10 = 0.0;
     double error15 = 0.0;
@@ -312,7 +417,12 @@ BacktestMetrics runBacktest(
     std::size_t correct15 = 0;
     std::size_t correct30 = 0;
 
-  
+    // NEW
+    std::size_t majorityCorrect5 = 0;
+    std::size_t majorityCorrect10 = 0;
+    std::size_t majorityCorrect15 = 0;
+    std::size_t majorityCorrect30 = 0;
+
     std::size_t actualPositive5 = 0;
     std::size_t actualPositive10 = 0;
     std::size_t actualPositive15 = 0;
@@ -323,12 +433,8 @@ BacktestMetrics runBacktest(
     std::size_t naiveCorrect15 = 0;
     std::size_t naiveCorrect30 = 0;
 
-
-  
-
     const std::size_t MIN_HISTORY =
         windowSize + 30 + 10;
-
 
     for (std::size_t currentIndex = MIN_HISTORY;
          currentIndex + 30 < prices.size();
@@ -373,6 +479,44 @@ BacktestMetrics runBacktest(
 
 
 
+        bool majority5 =
+            calculateMajorityPrediction(
+                prices,
+                currentIndex,
+                windowSize,
+                topK,
+                5
+            );
+
+        bool majority10 =
+            calculateMajorityPrediction(
+                prices,
+                currentIndex,
+                windowSize,
+                topK,
+                10
+            );
+
+        bool majority15 =
+            calculateMajorityPrediction(
+                prices,
+                currentIndex,
+                windowSize,
+                topK,
+                15
+            );
+
+        bool majority30 =
+            calculateMajorityPrediction(
+                prices,
+                currentIndex,
+                windowSize,
+                topK,
+                30
+            );
+
+
+
         std::size_t currentPriceIndex =
             currentIndex + windowSize - 1;
 
@@ -405,8 +549,6 @@ BacktestMetrics runBacktest(
             );
 
 
-    
-
         double trailingReturn =
             calculateTrailingReturn(
                 prices,
@@ -414,10 +556,6 @@ BacktestMetrics runBacktest(
                 5
             );
 
-
-        /*
-            MAE
-        */
 
         error5 +=
             std::abs(
@@ -440,7 +578,7 @@ BacktestMetrics runBacktest(
             );
 
 
-      
+
 
         if (
             (prediction5 >= 0.0 &&
@@ -481,6 +619,42 @@ BacktestMetrics runBacktest(
         {
             ++correct30;
         }
+
+
+ 
+
+        bool actualDirection5 =
+            actual5 >= 0.0;
+
+        bool actualDirection10 =
+            actual10 >= 0.0;
+
+        bool actualDirection15 =
+            actual15 >= 0.0;
+
+        bool actualDirection30 =
+            actual30 >= 0.0;
+
+        if (majority5 == actualDirection5)
+        {
+            ++majorityCorrect5;
+        }
+
+        if (majority10 == actualDirection10)
+        {
+            ++majorityCorrect10;
+        }
+
+        if (majority15 == actualDirection15)
+        {
+            ++majorityCorrect15;
+        }
+
+        if (majority30 == actualDirection30)
+        {
+            ++majorityCorrect30;
+        }
+
 
 
 
@@ -526,13 +700,22 @@ BacktestMetrics runBacktest(
 
 
 
-        if (actual5 >= 0.0)  ++actualPositive5;
-        if (actual10 >= 0.0) ++actualPositive10;
-        if (actual15 >= 0.0) ++actualPositive15;
-        if (actual30 >= 0.0) ++actualPositive30;
+
+        if (actual5 >= 0.0)
+            ++actualPositive5;
+
+        if (actual10 >= 0.0)
+            ++actualPositive10;
+
+        if (actual15 >= 0.0)
+            ++actualPositive15;
+
+        if (actual30 >= 0.0)
+            ++actualPositive30;
 
 
         ++metrics.samples;
+
 
 
 
@@ -580,9 +763,6 @@ BacktestMetrics runBacktest(
     }
 
 
-    /*
-        FINAL MAE
-    */
 
     metrics.mae5 =
         error5 /
@@ -601,7 +781,7 @@ BacktestMetrics runBacktest(
         metrics.samples;
 
 
-   
+
 
     metrics.directionalAccuracy5 =
         (static_cast<double>(correct5) /
@@ -618,6 +798,26 @@ BacktestMetrics runBacktest(
     metrics.directionalAccuracy30 =
         (static_cast<double>(correct30) /
          metrics.samples) * 100.0;
+
+
+
+
+    metrics.majorityAccuracy5 =
+        (static_cast<double>(majorityCorrect5) /
+         metrics.samples) * 100.0;
+
+    metrics.majorityAccuracy10 =
+        (static_cast<double>(majorityCorrect10) /
+         metrics.samples) * 100.0;
+
+    metrics.majorityAccuracy15 =
+        (static_cast<double>(majorityCorrect15) /
+         metrics.samples) * 100.0;
+
+    metrics.majorityAccuracy30 =
+        (static_cast<double>(majorityCorrect30) /
+         metrics.samples) * 100.0;
+
 
 
 
@@ -638,7 +838,7 @@ BacktestMetrics runBacktest(
          metrics.samples) * 100.0;
 
 
-  
+
 
     metrics.naiveAccuracy5 =
         (static_cast<double>(naiveCorrect5) /
@@ -657,9 +857,6 @@ BacktestMetrics runBacktest(
          metrics.samples) * 100.0;
 
 
-    /*
-        SIGNIFICANCE (z-scores vs 50% random baseline)
-    */
 
     metrics.zScore5 =
         calculateZScore(

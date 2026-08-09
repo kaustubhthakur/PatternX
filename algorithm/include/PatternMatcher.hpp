@@ -1,8 +1,8 @@
 #ifndef PATTERN_MATCHER_HPP
 #define PATTERN_MATCHER_HPP
 
-#include <vector>
 #include <cstddef>
+#include <vector>
 
 struct PatternMatch
 {

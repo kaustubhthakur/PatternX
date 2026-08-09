@@ -29,14 +29,12 @@ FutureReturns calculateFutureReturns(
         return result;
     }
 
-   
     if (endIndex + 5 < prices.size())
     {
         result.return5 =
             ((prices[endIndex + 5] - currentPrice)
              / currentPrice) * 100.0;
     }
-
 
     if (endIndex + 10 < prices.size())
     {
@@ -45,7 +43,6 @@ FutureReturns calculateFutureReturns(
              / currentPrice) * 100.0;
     }
 
-    
     if (endIndex + 15 < prices.size())
     {
         result.return15 =
@@ -53,7 +50,6 @@ FutureReturns calculateFutureReturns(
              / currentPrice) * 100.0;
     }
 
-    
     if (endIndex + 30 < prices.size())
     {
         result.return30 =
@@ -108,6 +104,79 @@ PredictionResult calculateWeightedPrediction(
         result.prediction30 +=
             weight * futureReturns[i].return30;
     }
+
+    return result;
+}
+
+
+// ------------------------------------------------------------
+// Majority vote prediction
+//
+// For each horizon, count how many historical matches
+// produced a positive return.
+//
+// More positive matches  -> UP
+// More negative matches  -> DOWN
+//
+// Existing weighted prediction remains completely unchanged.
+// ------------------------------------------------------------
+MajorityVoteResult calculateMajorityVote(
+    const std::vector<FutureReturns>& futureReturns
+)
+{
+    MajorityVoteResult result{
+        false,
+        false,
+        false,
+        false,
+        0,
+        0,
+        0,
+        0
+    };
+
+    if (futureReturns.empty())
+    {
+        return result;
+    }
+
+    for (const auto& returns : futureReturns)
+    {
+        if (returns.return5 > 0.0)
+        {
+            result.positive5++;
+        }
+
+        if (returns.return10 > 0.0)
+        {
+            result.positive10++;
+        }
+
+        if (returns.return15 > 0.0)
+        {
+            result.positive15++;
+        }
+
+        if (returns.return30 > 0.0)
+        {
+            result.positive30++;
+        }
+    }
+
+    const std::size_t total =
+        futureReturns.size();
+
+    result.prediction5 =
+        result.positive5 > total / 2;
+
+    result.prediction10 =
+        result.positive10 > total / 2;
+
+    result.prediction15 =
+        result.positive15 > total / 2;
+
+    result.prediction30 =
+        result.positive30 > total / 2;
 
     return result;
 }

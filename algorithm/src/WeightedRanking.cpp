@@ -1,7 +1,6 @@
 #include "../include/WeightedRanking.hpp"
 
 #include <cmath>
-#include <vector>
 
 std::vector<WeightedMatch> calculateWeights(
     const std::vector<std::size_t>& windowIndices,
@@ -26,7 +25,9 @@ std::vector<WeightedMatch> calculateWeights(
 
     double totalWeight = 0.0;
 
-    for (std::size_t i = 0; i < distances.size(); ++i)
+    for (std::size_t i = 0;
+         i < distances.size();
+         ++i)
     {
         double distance = distances[i];
 

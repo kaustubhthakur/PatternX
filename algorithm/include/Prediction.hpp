@@ -20,6 +20,20 @@ struct PredictionResult
     double prediction30;
 };
 
+// Majority vote result
+struct MajorityVoteResult
+{
+    bool prediction5;
+    bool prediction10;
+    bool prediction15;
+    bool prediction30;
+
+    std::size_t positive5;
+    std::size_t positive10;
+    std::size_t positive15;
+    std::size_t positive30;
+};
+
 FutureReturns calculateFutureReturns(
     const std::vector<double>& prices,
     std::size_t windowIndex,
@@ -29,6 +43,10 @@ FutureReturns calculateFutureReturns(
 PredictionResult calculateWeightedPrediction(
     const std::vector<FutureReturns>& futureReturns,
     const std::vector<double>& normalizedWeights
+);
+
+MajorityVoteResult calculateMajorityVote(
+    const std::vector<FutureReturns>& futureReturns
 );
 
 #endif

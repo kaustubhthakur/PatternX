@@ -1,6 +1,7 @@
 #ifndef WEIGHTED_RANKING_HPP
 #define WEIGHTED_RANKING_HPP
 
+#include <cstddef>
 #include <vector>
 
 struct WeightedMatch

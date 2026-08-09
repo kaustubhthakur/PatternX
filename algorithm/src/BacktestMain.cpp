@@ -78,6 +78,8 @@ int main()
 
     std::cout << "\n";
 
+   
+
     std::cout << "MAE +5 days         : "
               << metrics.mae5
               << "%\n";
@@ -96,6 +98,8 @@ int main()
 
     std::cout << "\n";
 
+
+
     std::cout << "Directional Accuracy +5 days  : "
               << metrics.directionalAccuracy5
               << "%\n";
@@ -112,6 +116,28 @@ int main()
               << metrics.directionalAccuracy30
               << "%\n";
 
+ 
+
+    std::cout << "\n";
+    std::cout << "--------------------------------------------\n";
+    std::cout << "MAJORITY VOTE ACCURACY\n";
+    std::cout << "--------------------------------------------\n\n";
+
+    std::cout << "Majority Accuracy +5 days  : "
+              << metrics.majorityAccuracy5
+              << "%\n";
+
+    std::cout << "Majority Accuracy +10 days : "
+              << metrics.majorityAccuracy10
+              << "%\n";
+
+    std::cout << "Majority Accuracy +15 days : "
+              << metrics.majorityAccuracy15
+              << "%\n";
+
+    std::cout << "Majority Accuracy +30 days : "
+              << metrics.majorityAccuracy30
+              << "%\n";
 
 
     std::cout << "\n";
@@ -140,6 +166,7 @@ int main()
               << "%\n";
 
     std::cout << "\n";
+
     std::cout << "-- Naive baseline (guess same sign as trailing 5-day return) --\n";
     std::cout << "If this matches or beats the model, FFT matching isn't\n";
     std::cout << "adding value over a much simpler momentum rule.\n\n";
@@ -161,6 +188,7 @@ int main()
               << "%\n";
 
     std::cout << "\n";
+
     std::cout << "-- Significance (z-score vs 50% random baseline) --\n";
     std::cout << "|z| > 1.96 is roughly 95% significance IF samples were\n";
     std::cout << "independent. These backtest windows overlap, so treat\n";
@@ -183,6 +211,7 @@ int main()
               << "\n";
 
     std::cout << "\n";
+
     std::cout << "============================================\n";
     std::cout << "BACKTEST COMPLETED SUCCESSFULLY\n";
     std::cout << "============================================\n";
