@@ -8,21 +8,20 @@
     Builds an empirical calibration table from training-period
     (rawConfidence, wasCorrect) observations.
 
-    Points are sorted by raw confidence, split into `numBuckets`
-    equal-sized groups, and each bucket's empirical accuracy is
-    computed as the fraction of correct predictions within it.
+    Points are sorted by raw confidence and split into
+    approximately equal-sized buckets.
 
-    A simplified isotonic-regression pass then merges any
-    adjacent buckets that violate monotonicity (a later bucket
-    scoring lower accuracy than an earlier one), guaranteeing the
-    final table is non-decreasing in raw confidence. This is what
-    makes lookupCalibratedConfidence() safe to use directly as a
-    threshold-comparable confidence score.
+    Each bucket stores:
+        - raw confidence range
+        - empirical accuracy
+        - number of observations
+
+    A proper weighted Pool Adjacent Violators Algorithm (PAVA)
+    is then applied to guarantee that calibrated confidence is
+    monotonically non-decreasing with raw confidence.
 
     Returns an empty table if there isn't enough data to form
-    reliable buckets (at least numBuckets * 3 points required) —
-    callers should fall back to the raw confidence score in that
-    case rather than trust a table built from too little data.
+    reliable buckets.
 */
 std::vector<CalibrationBucket> buildCalibrationTable(
     std::vector<CalibrationPoint> points,
@@ -36,22 +35,32 @@ std::vector<CalibrationBucket> buildCalibrationTable(
         return table;
     }
 
+    /*
+        Require at least 3 observations per bucket.
+    */
     if (points.size() < numBuckets * 3)
     {
-        // Not enough training observations to trust bucketed
-        // statistics — caller should fall back to raw confidence.
         return table;
     }
 
+    /*
+        Sort observations by raw confidence.
+    */
     std::sort(
         points.begin(),
         points.end(),
-        [](const CalibrationPoint& a, const CalibrationPoint& b)
+        [](const CalibrationPoint& a,
+           const CalibrationPoint& b)
         {
             return a.rawConfidence < b.rawConfidence;
         }
     );
 
+    /*
+        Equal-sized buckets.
+
+        The final bucket receives any remaining observations.
+    */
     const std::size_t bucketSize =
         points.size() / numBuckets;
 
@@ -59,7 +68,8 @@ std::vector<CalibrationBucket> buildCalibrationTable(
 
     for (std::size_t b = 0; b < numBuckets; ++b)
     {
-        const std::size_t start = b * bucketSize;
+        const std::size_t start =
+            b * bucketSize;
 
         const std::size_t end =
             (b == numBuckets - 1)
@@ -96,33 +106,120 @@ std::vector<CalibrationBucket> buildCalibrationTable(
         table.push_back(bucket);
     }
 
-    /*
-        Enforce monotonicity (simplified isotonic regression via
-        pool-adjacent-violators): repeatedly merge any adjacent
-        pair where accuracy decreases, until the whole sequence
-        is non-decreasing. A single forward pass with averaging
-        is sufficient for a small, pre-bucketed table like this.
-    */
-    bool changed = true;
-
-    while (changed)
+    if (table.size() <= 1)
     {
-        changed = false;
+        return table;
+    }
 
-        for (std::size_t i = 1; i < table.size(); ++i)
+    /*
+        Proper weighted Pool Adjacent Violators Algorithm.
+
+        Since CalibrationBucket currently does not store its
+        observation count, reconstruct the bucket weight from
+        the original equal-sized buckets.
+
+        The last bucket may contain more observations.
+    */
+    struct PavaBlock
+    {
+        std::size_t first;
+        std::size_t last;
+
+        double weightedAccuracy;
+        std::size_t weight;
+    };
+
+    std::vector<PavaBlock> blocks;
+    blocks.reserve(table.size());
+
+    for (std::size_t i = 0; i < table.size(); ++i)
+    {
+        /*
+            Reconstruct bucket weight.
+
+            Normal buckets contain bucketSize observations.
+            The final bucket contains all remaining observations.
+        */
+        std::size_t weight = bucketSize;
+
+        if (i == table.size() - 1)
         {
-            if (table[i].empiricalAccuracy 
-                table[i - 1].empiricalAccuracy)
+            weight =
+                points.size() -
+                (table.size() - 1) * bucketSize;
+        }
+
+        PavaBlock block{};
+
+        block.first = i;
+        block.last = i;
+        block.weight = weight;
+        block.weightedAccuracy =
+            table[i].empiricalAccuracy;
+
+        blocks.push_back(block);
+
+        /*
+            Merge violating adjacent blocks.
+
+            Earlier confidence bucket must not have
+            greater calibrated accuracy than a later bucket.
+        */
+        while (blocks.size() >= 2)
+        {
+            const std::size_t right =
+                blocks.size() - 1;
+
+            const std::size_t left =
+                right - 1;
+
+            if (blocks[left].weightedAccuracy <=
+                blocks[right].weightedAccuracy)
             {
-                const double merged =
-                    (table[i].empiricalAccuracy +
-                     table[i - 1].empiricalAccuracy) / 2.0;
-
-                table[i].empiricalAccuracy = merged;
-                table[i - 1].empiricalAccuracy = merged;
-
-                changed = true;
+                break;
             }
+
+            PavaBlock merged{};
+
+            merged.first =
+                blocks[left].first;
+
+            merged.last =
+                blocks[right].last;
+
+            merged.weight =
+                blocks[left].weight +
+                blocks[right].weight;
+
+            merged.weightedAccuracy =
+                (
+                    blocks[left].weightedAccuracy *
+                    static_cast<double>(blocks[left].weight)
+                    +
+                    blocks[right].weightedAccuracy *
+                    static_cast<double>(blocks[right].weight)
+                )
+                /
+                static_cast<double>(merged.weight);
+
+            blocks.pop_back();
+            blocks.pop_back();
+
+            blocks.push_back(merged);
+        }
+    }
+
+    /*
+        Apply the calibrated values back to the buckets.
+    */
+    for (const auto& block : blocks)
+    {
+        for (std::size_t i = block.first;
+             i <= block.last;
+             ++i)
+        {
+            table[i].empiricalAccuracy =
+                block.weightedAccuracy;
         }
     }
 
@@ -131,18 +228,16 @@ std::vector<CalibrationBucket> buildCalibrationTable(
 
 
 /*
-    Looks up the calibrated (empirically-measured) confidence
-    for a given raw confidence score, using the bucket whose
-    [low, high] range contains it.
+    Looks up calibrated confidence for a raw confidence value.
 
-    Falls back to returning rawConfidence unchanged if the table
-    is empty (e.g. not enough training data was available to
-    build one) — this keeps the system functional even before
-    calibration data exists, rather than failing outright.
+    If rawConfidence falls inside a bucket's observed range,
+    that bucket's empirical accuracy is returned.
 
-    Values outside the observed training range are clamped to
-    the nearest edge bucket's accuracy, since we have no
-    empirical evidence beyond what was observed in training.
+    Values below/above the observed range are clamped to the
+    nearest bucket's calibrated accuracy.
+
+    If the calibration table is empty, raw confidence is
+    returned unchanged.
 */
 double lookupCalibratedConfidence(
     const std::vector<CalibrationBucket>& table,
@@ -154,6 +249,9 @@ double lookupCalibratedConfidence(
         return rawConfidence;
     }
 
+    /*
+        Find the bucket containing the confidence value.
+    */
     for (const auto& bucket : table)
     {
         if (rawConfidence >= bucket.rawConfidenceLow &&
@@ -163,10 +261,16 @@ double lookupCalibratedConfidence(
         }
     }
 
+    /*
+        Below observed training range.
+    */
     if (rawConfidence < table.front().rawConfidenceLow)
     {
         return table.front().empiricalAccuracy;
     }
 
+    /*
+        Above observed training range.
+    */
     return table.back().empiricalAccuracy;
 }
