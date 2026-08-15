@@ -40,7 +40,7 @@ Output: Top historical matches (e.g. 96.4% similarity → Oct 2018)
                          Confidence / Signal
 ```
 
-Built in C++17, from raw CSV ingestion through FFT, pattern matching, weighted ranking, and a leak-free backtesting framework.
+From raw CSV ingestion through FFT, pattern matching, weighted ranking, and a leak-free backtesting framework.
 
 ---
 
@@ -123,43 +123,6 @@ g++ -Wall -Wextra -std=c++17 src/BacktestMain.cpp src/Backtester.cpp src/StockDa
 
 ---
 
-## Debugging & validation
-
-The most important part of this project wasn't writing the pattern-matching logic — it was building a backtest rigorous enough to catch it lying to me. Two real bugs surfaced this way:
-
-### 1. Autocorrelation / lookahead leakage
-The top-K selection enforced minimum separation *between* selected matches, but not between a candidate and the **current query window itself**. This let trivially adjacent windows (e.g. "yesterday," almost fully overlapping the query) win top-match slots purely because a window is highly self-similar one day apart — not because it represented a genuinely recurring historical pattern.
-
-**Fix:** pass the query window's index through to the matcher and exclude any candidate within `minSeparation` of it, in addition to the existing separation between selected matches.
-
-### 2. Spectral leakage from zero-padding
-Each 30-day window was zero-padded to 32 samples (next power of two) before the FFT. If the real signal didn't already end near zero, this created an artificial discontinuity at the boundary, which the FFT read as high-frequency content that was never actually in the price pattern — a fixed noise source added to every signature.
-
-**Fix:** apply a Hann window (smooth cosine taper to ~0 at both edges) before padding, so the transition to zero-padding is near-seamless instead of a sharp jump.
-
-### Results (TCS, 238 backtest samples, step = 10)
-
-| Horizon | Baseline | + Lookahead fix | + Hann window |
-|---|---|---|---|
-| +5 days  | 48.74% | 50.00% | 50.42% |
-| +10 days | 45.80% | 46.22% | **55.88%** |
-| +15 days | 50.00% | 50.42% | 53.36% |
-| +30 days | 53.78% | 53.78% | 54.20% |
-
-*(Directional accuracy — % of predictions that correctly called the sign of the future return. 50% is the random baseline.)*
-
-Both fixes moved every horizon up or held flat, never down — a useful sanity check that neither was a lucky, noise-driven change.
-
----
-
-## Honest limitations
-
-This is a research/learning project, not a validated trading strategy. Specifically:
-
-- **Backtest samples are correlated**, not independent — overlapping windows mean the effective statistical power behind "238 samples" is lower than it looks. The +10 day jump to 55.88% has not yet been confirmed against a significance test or a base-rate check (is the historical data itself skewed toward down-moves in this period?).
-- **Single stock, price-only.** No volume, market/sector context, or volatility regime conditioning — all known to matter for real forward-return prediction.
-- **No transaction costs, slippage, or position sizing** — even a confirmed statistical edge doesn't automatically survive real trading frictions.
-- **FFT magnitude is phase-blind.** Trend distance was added to partly compensate, but a shape-and-order-preserving distance measure (e.g. DTW on raw or return-sequence data) would likely be a stronger foundation than magnitude spectra alone.
 
 
 
@@ -203,6 +166,8 @@ input and output :
 
 Stock          : TCS
 Window         : 30 trading days
+
+
 Top-K          : 10
 Confidence     : 60%
 
