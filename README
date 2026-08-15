@@ -199,19 +199,34 @@ This is a research/learning project, not a validated trading strategy. Specifica
 ---------------------------------------------------------
                     
 
+input and output : 
 
-                    Symbol       : TCS
-Window size  : 30 days
+Stock          : TCS
+Window         : 30 trading days
+Top-K          : 10
+Confidence     : 60%
 
-Top 5 historical matches:
-  1. 2018-10-11   similarity: 96.4%
-  2. 2021-03-02   similarity: 93.1%
-  3. 2016-11-29   similarity: 91.7%
-  4. 2019-06-04   similarity: 90.2%
-  5. 2015-01-22   similarity: 88.9%
+----------------------------------------------------
+HISTORICAL MATCHES
+----------------------------------------------------
 
-Horizon    Predicted Return    Confidence    Signal
-+5 days        +1.42%            71.3%       NO SIGNAL
-+10 days       +2.05%            68.9%       NO SIGNAL
-+15 days       +3.18%            77.4%       SIGNAL
-+30 days       +4.60%            65.2%       NO SIGNAL
+Rank   Date          Similarity
+1      2018-10-11    96.4%
+2      2021-03-02    93.1%
+3      2016-11-29    91.7%
+4      2019-06-04    90.2%
+5      2015-01-22    88.9%
+...
+
+----------------------------------------------------
+PREDICTION
+----------------------------------------------------
+
+Horizon    Expected Return    Confidence    Signal
+
++5D           -1.46%             49.51%      NO SIGNAL
++10D          -1.86%             67.14%      SIGNAL
++15D          -2.36%             62.42%      SIGNAL
++30D          -0.78%             52.08%      NO SIGNAL
+
+====================================================
