@@ -111,14 +111,6 @@ PredictionResult calculateWeightedPrediction(
 
 // ------------------------------------------------------------
 // Majority vote prediction
-//
-// For each horizon, count how many historical matches
-// produced a positive return.
-//
-// More positive matches  -> UP
-// More negative matches  -> DOWN
-//
-// Existing weighted prediction remains completely unchanged.
 // ------------------------------------------------------------
 MajorityVoteResult calculateMajorityVote(
     const std::vector<FutureReturns>& futureReturns
@@ -177,6 +169,109 @@ MajorityVoteResult calculateMajorityVote(
 
     result.prediction30 =
         result.positive30 > total / 2;
+
+    return result;
+}
+
+
+// ------------------------------------------------------------
+// NEW: Day-by-day continuation (days 1 through 5)
+//
+// Gives the cumulative % return at EVERY day from 1 to 5,
+// not just the fixed +5 checkpoint. Lets the caller show a
+// short-term trajectory instead of only an endpoint number.
+//
+// Kept as a separate struct/function pair so nothing about
+// the existing FutureReturns / PredictionResult contract
+// changes.
+// ------------------------------------------------------------
+DailyContinuation calculateDailyContinuation(
+    const std::vector<double>& prices,
+    std::size_t windowIndex,
+    std::size_t windowSize
+)
+{
+    DailyContinuation result{
+        0.0, 0.0, 0.0, 0.0, 0.0
+    };
+
+    const std::size_t endIndex =
+        windowIndex + windowSize - 1;
+
+    if (endIndex >= prices.size())
+    {
+        return result;
+    }
+
+    const double currentPrice =
+        prices[endIndex];
+
+    if (currentPrice == 0.0)
+    {
+        return result;
+    }
+
+    double* const dayFields[5] = {
+        &result.day1,
+        &result.day2,
+        &result.day3,
+        &result.day4,
+        &result.day5
+    };
+
+    for (std::size_t day = 1; day <= 5; ++day)
+    {
+        const std::size_t futureIndex =
+            endIndex + day;
+
+        if (futureIndex >= prices.size())
+        {
+            continue;
+        }
+
+        *dayFields[day - 1] =
+            ((prices[futureIndex] - currentPrice)
+             / currentPrice) * 100.0;
+    }
+
+    return result;
+}
+
+
+ContinuationPrediction calculateWeightedContinuation(
+    const std::vector<DailyContinuation>& continuations,
+    const std::vector<double>& normalizedWeights
+)
+{
+    ContinuationPrediction result{
+        0.0, 0.0, 0.0, 0.0, 0.0
+    };
+
+    if (continuations.empty() ||
+        normalizedWeights.empty())
+    {
+        return result;
+    }
+
+    if (continuations.size() !=
+        normalizedWeights.size())
+    {
+        return result;
+    }
+
+    for (std::size_t i = 0;
+         i < continuations.size();
+         ++i)
+    {
+        const double weight =
+            normalizedWeights[i];
+
+        result.day1 += weight * continuations[i].day1;
+        result.day2 += weight * continuations[i].day2;
+        result.day3 += weight * continuations[i].day3;
+        result.day4 += weight * continuations[i].day4;
+        result.day5 += weight * continuations[i].day5;
+    }
 
     return result;
 }

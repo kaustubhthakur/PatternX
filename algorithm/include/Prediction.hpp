@@ -4,6 +4,34 @@
 #include <cstddef>
 #include <vector>
 
+struct DailyContinuation
+{
+    double day1;
+    double day2;
+    double day3;
+    double day4;
+    double day5;
+};
+
+struct ContinuationPrediction
+{
+    double day1;
+    double day2;
+    double day3;
+    double day4;
+    double day5;
+};
+
+DailyContinuation calculateDailyContinuation(
+    const std::vector<double>& prices,
+    std::size_t windowIndex,
+    std::size_t windowSize
+);
+
+ContinuationPrediction calculateWeightedContinuation(
+    const std::vector<DailyContinuation>& continuations,
+    const std::vector<double>& normalizedWeights
+);
 struct FutureReturns
 {
     double return5;
