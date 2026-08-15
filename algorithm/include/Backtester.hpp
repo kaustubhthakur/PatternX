@@ -8,7 +8,6 @@ struct BacktestMetrics
 {
     std::size_t samples = 0;
 
-
     double directionalAccuracy5 = 0.0;
     double directionalAccuracy10 = 0.0;
     double directionalAccuracy15 = 0.0;
@@ -34,7 +33,6 @@ struct BacktestMetrics
     double zScore15 = 0.0;
     double zScore30 = 0.0;
 
-
     double confidenceThreshold = 0.0;
 
     std::size_t signals5 = 0;
@@ -56,7 +54,6 @@ struct BacktestMetrics
     double averageReturnWhenSignaled10 = 0.0;
     double averageReturnWhenSignaled15 = 0.0;
     double averageReturnWhenSignaled30 = 0.0;
-
 
     double totalReturn5 = 0.0;
     double totalReturn10 = 0.0;
@@ -84,16 +81,12 @@ struct BacktestMetrics
     double maxDrawdown30 = 0.0;
 };
 
-
-
 BacktestMetrics runBacktest(
     const std::vector<double>& prices,
     std::size_t windowSize,
     std::size_t topK,
     std::size_t step
 );
-
-
 
 BacktestMetrics runConfidenceBacktest(
     const std::vector<double>& prices,

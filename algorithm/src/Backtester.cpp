@@ -5,6 +5,7 @@
 #include "../include/PatternMatcher.hpp"
 #include "../include/WeightedRanking.hpp"
 #include "../include/Confidence.hpp"
+#include "../include/Calibration.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -346,6 +347,207 @@ bool buildMatches(
         );
 
     return !weightedMatches.empty();
+}
+
+
+
+/*
+    Build a calibration table from observations that are fully
+    contained inside the training period.
+
+    IMPORTANT:
+    A calibration point at queryIndex is only created when the
+    complete future outcome for the selected horizon is already
+    known before trainingEnd. This prevents future/test leakage.
+
+    Calibration is built separately for each horizon because the
+    confidence score has a different meaning at +5/+10/+15/+30.
+*/
+std::vector<CalibrationPoint> collectCalibrationPoints(
+    const std::vector<double>& prices,
+    std::size_t trainingEnd,
+    std::size_t windowSize,
+    std::size_t topK,
+    std::size_t horizon,
+    std::size_t step
+)
+{
+    std::vector<CalibrationPoint> points;
+
+    if (trainingEnd <= windowSize)
+    {
+        return points;
+    }
+
+    if (step == 0)
+    {
+        step = 1;
+    }
+
+    /*
+        Leave enough history for matching and enough room for the
+        complete horizon outcome to be known inside the training set.
+    */
+    const std::size_t minimumQueryIndex =
+        windowSize + horizon + 1;
+
+    if (trainingEnd <= minimumQueryIndex)
+    {
+        return points;
+    }
+
+    /*
+        Use only query points whose complete outcome lies strictly
+        before the training boundary.
+
+        We deliberately use the same step as the backtest so the
+        calibration sample is computationally manageable and has
+        the same temporal sampling characteristics.
+    */
+    for (std::size_t queryIndex = minimumQueryIndex;
+         queryIndex < trainingEnd;
+         queryIndex += step)
+    {
+        const std::size_t predictionIndex =
+            queryIndex + windowSize - 1;
+
+        if (predictionIndex >= trainingEnd)
+        {
+            break;
+        }
+
+        /*
+            The historical outcome must be completely known inside
+            the training period.
+        */
+        if (predictionIndex + horizon >= trainingEnd)
+        {
+            break;
+        }
+
+        std::vector<WeightedMatch> matches;
+
+        if (!buildMatches(
+                prices,
+                queryIndex,
+                windowSize,
+                topK,
+                horizon,
+                matches))
+        {
+            continue;
+        }
+
+        /*
+            Use the existing PatternX confidence calculation.
+
+            The threshold is irrelevant here because we only need
+            the raw confidence value. Signal generation is performed
+            later using the calibrated confidence.
+        */
+        const ConfidenceResult confidence =
+            calculateConfidence(
+                prices,
+                matches,
+                windowSize,
+                0.0
+            );
+
+        double rawConfidence = 0.0;
+        bool predictedPositive = false;
+
+        if (horizon == 5)
+        {
+            rawConfidence =
+                confidence.confidence5.confidence;
+
+            predictedPositive =
+                confidence.confidence5.predictedPositive;
+        }
+        else if (horizon == 10)
+        {
+            rawConfidence =
+                confidence.confidence10.confidence;
+
+            predictedPositive =
+                confidence.confidence10.predictedPositive;
+        }
+        else if (horizon == 15)
+        {
+            rawConfidence =
+                confidence.confidence15.confidence;
+
+            predictedPositive =
+                confidence.confidence15.predictedPositive;
+        }
+        else if (horizon == 30)
+        {
+            rawConfidence =
+                confidence.confidence30.confidence;
+
+            predictedPositive =
+                confidence.confidence30.predictedPositive;
+        }
+        else
+        {
+            continue;
+        }
+
+        const double actualReturn =
+            calculateReturn(
+                prices,
+                predictionIndex,
+                horizon
+            );
+
+        /*
+            A calibration point records whether the directional
+            prediction was correct.
+        */
+        const bool wasCorrect =
+            (predictedPositive && actualReturn > 0.0) ||
+            (!predictedPositive && actualReturn < 0.0);
+
+        points.push_back(
+            CalibrationPoint{
+                rawConfidence,
+                wasCorrect
+            }
+        );
+    }
+
+    return points;
+}
+
+
+std::vector<CalibrationBucket> buildTrainingCalibrationTable(
+    const std::vector<double>& prices,
+    std::size_t trainingEnd,
+    std::size_t windowSize,
+    std::size_t topK,
+    std::size_t horizon,
+    std::size_t step
+)
+{
+    const std::vector<CalibrationPoint> points =
+        collectCalibrationPoints(
+            prices,
+            trainingEnd,
+            windowSize,
+            topK,
+            horizon,
+            step
+        );
+
+    /*
+        Ten buckets are used by default, but the Calibration module
+        itself will safely return an empty table when insufficient
+        training observations are available.
+    */
+    return buildCalibrationTable(
+        points,
+        10
+    );
 }
 
 
@@ -939,6 +1141,69 @@ BacktestMetrics runConfidenceBacktest(
         << "\n";
 
     /*
+        ========================================================
+        TRAINING-ONLY CONFIDENCE CALIBRATION
+        ========================================================
+
+        Calibration is built once from the initial training period.
+        No test-period observations are used.
+
+        Separate calibration tables are maintained for each horizon
+        because confidence at +5 days does not necessarily have the
+        same empirical meaning as confidence at +30 days.
+    */
+    const std::vector<CalibrationBucket> calibration5 =
+        buildTrainingCalibrationTable(
+            prices,
+            initialTrainEnd,
+            windowSize,
+            topK,
+            5,
+            step
+        );
+
+    const std::vector<CalibrationBucket> calibration10 =
+        buildTrainingCalibrationTable(
+            prices,
+            initialTrainEnd,
+            windowSize,
+            topK,
+            10,
+            step
+        );
+
+    const std::vector<CalibrationBucket> calibration15 =
+        buildTrainingCalibrationTable(
+            prices,
+            initialTrainEnd,
+            windowSize,
+            topK,
+            15,
+            step
+        );
+
+    const std::vector<CalibrationBucket> calibration30 =
+        buildTrainingCalibrationTable(
+            prices,
+            initialTrainEnd,
+            windowSize,
+            topK,
+            30,
+            step
+        );
+
+    std::cout
+        << "Calibration buckets (+5/+10/+15/+30): "
+        << calibration5.size()
+        << "/"
+        << calibration10.size()
+        << "/"
+        << calibration15.size()
+        << "/"
+        << calibration30.size()
+        << "\n";
+
+    /*
         Signal statistics.
     */
     std::size_t signals5 = 0;
@@ -1184,12 +1449,32 @@ BacktestMetrics runConfidenceBacktest(
             );
 
         /*
-            Confidence.
+            ========================================================
+            RAW + CALIBRATED CONFIDENCE
+            ========================================================
+
+            calculateConfidence() still produces the original raw
+            PatternX confidence.
+
+            The calibrated value is then obtained exclusively from
+            the training-period calibration table.
+
+            Signal generation below uses calibrated confidence.
         */
         ConfidenceResult confidence5{};
         ConfidenceResult confidence10{};
         ConfidenceResult confidence15{};
         ConfidenceResult confidence30{};
+
+        double rawConfidence5 = 0.0;
+        double rawConfidence10 = 0.0;
+        double rawConfidence15 = 0.0;
+        double rawConfidence30 = 0.0;
+
+        double calibratedConfidence5 = 0.0;
+        double calibratedConfidence10 = 0.0;
+        double calibratedConfidence15 = 0.0;
+        double calibratedConfidence30 = 0.0;
 
         if (valid5)
         {
@@ -1199,6 +1484,15 @@ BacktestMetrics runConfidenceBacktest(
                     matches5,
                     windowSize,
                     confidenceThreshold
+                );
+
+            rawConfidence5 =
+                confidence5.confidence5.confidence;
+
+            calibratedConfidence5 =
+                lookupCalibratedConfidence(
+                    calibration5,
+                    rawConfidence5
                 );
         }
 
@@ -1211,6 +1505,15 @@ BacktestMetrics runConfidenceBacktest(
                     windowSize,
                     confidenceThreshold
                 );
+
+            rawConfidence10 =
+                confidence10.confidence10.confidence;
+
+            calibratedConfidence10 =
+                lookupCalibratedConfidence(
+                    calibration10,
+                    rawConfidence10
+                );
         }
 
         if (valid15)
@@ -1221,6 +1524,15 @@ BacktestMetrics runConfidenceBacktest(
                     matches15,
                     windowSize,
                     confidenceThreshold
+                );
+
+            rawConfidence15 =
+                confidence15.confidence15.confidence;
+
+            calibratedConfidence15 =
+                lookupCalibratedConfidence(
+                    calibration15,
+                    rawConfidence15
                 );
         }
 
@@ -1233,6 +1545,50 @@ BacktestMetrics runConfidenceBacktest(
                     windowSize,
                     confidenceThreshold
                 );
+
+            rawConfidence30 =
+                confidence30.confidence30.confidence;
+
+            calibratedConfidence30 =
+                lookupCalibratedConfidence(
+                    calibration30,
+                    rawConfidence30
+                );
+        }
+
+        /*
+            Replace the confidence-driven signal decision with the
+            calibrated score.
+
+            predictedPositive remains the original PatternX
+            directional prediction.
+        */
+        if (valid5)
+        {
+            confidence5.confidence5.signal =
+                calibratedConfidence5 >=
+                confidenceThreshold;
+        }
+
+        if (valid10)
+        {
+            confidence10.confidence10.signal =
+                calibratedConfidence10 >=
+                confidenceThreshold;
+        }
+
+        if (valid15)
+        {
+            confidence15.confidence15.signal =
+                calibratedConfidence15 >=
+                confidenceThreshold;
+        }
+
+        if (valid30)
+        {
+            confidence30.confidence30.signal =
+                calibratedConfidence30 >=
+                confidenceThreshold;
         }
 
         /*
@@ -1767,9 +2123,9 @@ BacktestMetrics runConfidenceBacktest(
                     << "% | Actual: "
                     << actual5
                     << "% | Confidence: "
-                    << confidence5
-                        .confidence5
-                        .confidence * 100.0
+                    << rawConfidence5 * 100.0
+                    << "% -> Calibrated: "
+                    << calibratedConfidence5 * 100.0
                     << "% | "
                     << (
                         confidence5
@@ -1789,9 +2145,9 @@ BacktestMetrics runConfidenceBacktest(
                     << "% | Actual: "
                     << actual10
                     << "% | Confidence: "
-                    << confidence10
-                        .confidence10
-                        .confidence * 100.0
+                    << rawConfidence10 * 100.0
+                    << "% -> Calibrated: "
+                    << calibratedConfidence10 * 100.0
                     << "% | "
                     << (
                         confidence10
@@ -1811,9 +2167,9 @@ BacktestMetrics runConfidenceBacktest(
                     << "% | Actual: "
                     << actual15
                     << "% | Confidence: "
-                    << confidence15
-                        .confidence15
-                        .confidence * 100.0
+                    << rawConfidence15 * 100.0
+                    << "% -> Calibrated: "
+                    << calibratedConfidence15 * 100.0
                     << "% | "
                     << (
                         confidence15
@@ -1833,9 +2189,9 @@ BacktestMetrics runConfidenceBacktest(
                     << "% | Actual: "
                     << actual30
                     << "% | Confidence: "
-                    << confidence30
-                        .confidence30
-                        .confidence * 100.0
+                    << rawConfidence30 * 100.0
+                    << "% -> Calibrated: "
+                    << calibratedConfidence30 * 100.0
                     << "% | "
                     << (
                         confidence30
