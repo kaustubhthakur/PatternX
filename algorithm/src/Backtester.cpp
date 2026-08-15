@@ -551,6 +551,102 @@ std::vector<CalibrationBucket> buildTrainingCalibrationTable(
 }
 
 
+
+/*
+    ============================================================
+    PREDICTION AGREEMENT
+    ============================================================
+
+    Measures how strongly the four horizons agree on direction.
+
+    Example:
+        +5  UP
+        +10 UP
+        +15 UP
+        +30 DOWN
+
+    Agreement = 3 / 4 = 75%.
+
+    A horizon receives the agreement of the group that shares
+    its direction. This is intentionally direction-only; the
+    confidence and expected-return magnitude remain separate
+    signals.
+
+    With four horizons:
+        100% = 4/4 agree
+         75% = 3/4 agree
+         50% = 2/4 split
+         25% = 1/4
+*/
+double calculatePredictionAgreement(
+    bool valid5,
+    bool predictedPositive5,
+    bool valid10,
+    bool predictedPositive10,
+    bool valid15,
+    bool predictedPositive15,
+    bool valid30,
+    bool predictedPositive30
+)
+{
+    std::size_t validCount = 0;
+    std::size_t positiveCount = 0;
+
+    if (valid5)
+    {
+        ++validCount;
+        if (predictedPositive5)
+        {
+            ++positiveCount;
+        }
+    }
+
+    if (valid10)
+    {
+        ++validCount;
+        if (predictedPositive10)
+        {
+            ++positiveCount;
+        }
+    }
+
+    if (valid15)
+    {
+        ++validCount;
+        if (predictedPositive15)
+        {
+            ++positiveCount;
+        }
+    }
+
+    if (valid30)
+    {
+        ++validCount;
+        if (predictedPositive30)
+        {
+            ++positiveCount;
+        }
+    }
+
+    if (validCount == 0)
+    {
+        return 0.0;
+    }
+
+    const std::size_t negativeCount =
+        validCount - positiveCount;
+
+    const std::size_t dominantCount =
+        std::max(
+            positiveCount,
+            negativeCount
+        );
+
+    return static_cast<double>(dominantCount) /
+           static_cast<double>(validCount);
+}
+
+
 double calculateWeightedPredictionFromMatches(
     const std::vector<double>& prices,
     const std::vector<WeightedMatch>& matches,
@@ -1557,38 +1653,79 @@ BacktestMetrics runConfidenceBacktest(
         }
 
         /*
-            Replace the confidence-driven signal decision with the
-            calibrated score.
+            ========================================================
+            PREDICTION AGREEMENT
+            ========================================================
 
-            predictedPositive remains the original PatternX
-            directional prediction.
+            Require at least 3 of the 4 horizons to agree before
+            accepting a calibrated signal.
+
+            0.75 is deliberately used as the first, non-tuned
+            ensemble agreement threshold because with four horizons
+            it means exactly 3/4 directional agreement.
+        */
+        constexpr double MIN_PREDICTION_AGREEMENT = 0.75;
+
+        const double predictionAgreement =
+            calculatePredictionAgreement(
+                valid5,
+                valid5 &&
+                    confidence5.confidence5.predictedPositive,
+
+                valid10,
+                valid10 &&
+                    confidence10.confidence10.predictedPositive,
+
+                valid15,
+                valid15 &&
+                    confidence15.confidence15.predictedPositive,
+
+                valid30,
+                valid30 &&
+                    confidence30.confidence30.predictedPositive
+            );
+
+        /*
+            calibrated confidence remains the first gate.
+
+            prediction agreement is the second gate.
+
+            Both conditions must be satisfied for a signal.
         */
         if (valid5)
         {
             confidence5.confidence5.signal =
                 calibratedConfidence5 >=
-                confidenceThreshold;
+                    confidenceThreshold &&
+                predictionAgreement >=
+                    MIN_PREDICTION_AGREEMENT;
         }
 
         if (valid10)
         {
             confidence10.confidence10.signal =
                 calibratedConfidence10 >=
-                confidenceThreshold;
+                    confidenceThreshold &&
+                predictionAgreement >=
+                    MIN_PREDICTION_AGREEMENT;
         }
 
         if (valid15)
         {
             confidence15.confidence15.signal =
                 calibratedConfidence15 >=
-                confidenceThreshold;
+                    confidenceThreshold &&
+                predictionAgreement >=
+                    MIN_PREDICTION_AGREEMENT;
         }
 
         if (valid30)
         {
             confidence30.confidence30.signal =
                 calibratedConfidence30 >=
-                confidenceThreshold;
+                    confidenceThreshold &&
+                predictionAgreement >=
+                    MIN_PREDICTION_AGREEMENT;
         }
 
         /*
@@ -2202,6 +2339,11 @@ BacktestMetrics runConfidenceBacktest(
                     )
                     << "\n";
             }
+            
+            std::cout
+                << "Prediction agreement: "
+                << predictionAgreement * 100.0
+                << "% (minimum 75.00%)\n";
         }
     }
 
