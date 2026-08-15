@@ -246,7 +246,7 @@ double calculateRegimeSimilarity(
     );
 }
 
-} // namespace
+} 
 
 
 std::vector<WeightedMatch> applyRegimeFilter(

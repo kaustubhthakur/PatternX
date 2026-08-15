@@ -345,7 +345,6 @@ int main()
             originalIndex + WINDOW_SIZE - 1;
 
 
-        // Need at least 30 future trading days
         if (endIndex + 30 < prices.size())
         {
             predictionIndices.push_back(

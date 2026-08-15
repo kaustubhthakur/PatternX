@@ -8,13 +8,10 @@ struct PatternMatch
 {
     std::size_t windowIndex;
 
-    // Original FFT distance
     double fftDistance;
 
-    // Trend similarity distance
     double trendDistance;
 
-    // Final combined distance
     double combinedDistance;
 };
 

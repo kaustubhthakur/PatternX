@@ -12,7 +12,7 @@ struct MultiWindowPrediction
     double prediction15 = 0.0;
     double prediction30 = 0.0;
 
-    std::array<double, 5> continuationPath{};   // day 1..5 cumulative % return, ensemble-averaged
+    std::array<double, 5> continuationPath{}; 
 
     std::size_t validWindowModels = 0;
 };

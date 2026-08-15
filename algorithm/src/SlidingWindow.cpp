@@ -7,7 +7,7 @@ std::vector<std::vector<double>> createWindows(
 {
     std::vector<std::vector<double>> windows;
 
-    // Invalid window
+   
     if (windowSize == 0 || windowSize > prices.size()) {
         return windows;
     }
