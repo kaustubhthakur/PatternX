@@ -5,15 +5,15 @@
 
 struct CalibrationPoint
 {
-    double rawConfidence;
-    bool wasCorrect;
+    double rawConfidence = 0.0;
+    bool wasCorrect = false;
 };
 
 struct CalibrationBucket
 {
-    double rawConfidenceLow;
-    double rawConfidenceHigh;
-    double empiricalAccuracy;
+    double rawConfidenceLow = 0.0;
+    double rawConfidenceHigh = 0.0;
+    double empiricalAccuracy = 0.0;
 };
 
 std::vector<CalibrationBucket> buildCalibrationTable(
