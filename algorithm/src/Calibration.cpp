@@ -4,25 +4,7 @@
 #include <cstddef>
 #include <vector>
 
-/*
-    Builds an empirical calibration table from training-period
-    (rawConfidence, wasCorrect) observations.
 
-    Points are sorted by raw confidence and split into
-    approximately equal-sized buckets.
-
-    Each bucket stores:
-        - raw confidence range
-        - empirical accuracy
-        - number of observations
-
-    A proper weighted Pool Adjacent Violators Algorithm (PAVA)
-    is then applied to guarantee that calibrated confidence is
-    monotonically non-decreasing with raw confidence.
-
-    Returns an empty table if there isn't enough data to form
-    reliable buckets.
-*/
 std::vector<CalibrationBucket> buildCalibrationTable(
     std::vector<CalibrationPoint> points,
     std::size_t numBuckets
@@ -35,17 +17,12 @@ std::vector<CalibrationBucket> buildCalibrationTable(
         return table;
     }
 
-    /*
-        Require at least 3 observations per bucket.
-    */
     if (points.size() < numBuckets * 3)
     {
         return table;
     }
 
-    /*
-        Sort observations by raw confidence.
-    */
+  
     std::sort(
         points.begin(),
         points.end(),
@@ -56,11 +33,7 @@ std::vector<CalibrationBucket> buildCalibrationTable(
         }
     );
 
-    /*
-        Equal-sized buckets.
-
-        The final bucket receives any remaining observations.
-    */
+  
     const std::size_t bucketSize =
         points.size() / numBuckets;
 
@@ -111,15 +84,7 @@ std::vector<CalibrationBucket> buildCalibrationTable(
         return table;
     }
 
-    /*
-        Proper weighted Pool Adjacent Violators Algorithm.
-
-        Since CalibrationBucket currently does not store its
-        observation count, reconstruct the bucket weight from
-        the original equal-sized buckets.
-
-        The last bucket may contain more observations.
-    */
+    
     struct PavaBlock
     {
         std::size_t first;
@@ -134,12 +99,7 @@ std::vector<CalibrationBucket> buildCalibrationTable(
 
     for (std::size_t i = 0; i < table.size(); ++i)
     {
-        /*
-            Reconstruct bucket weight.
-
-            Normal buckets contain bucketSize observations.
-            The final bucket contains all remaining observations.
-        */
+        
         std::size_t weight = bucketSize;
 
         if (i == table.size() - 1)
@@ -159,12 +119,7 @@ std::vector<CalibrationBucket> buildCalibrationTable(
 
         blocks.push_back(block);
 
-        /*
-            Merge violating adjacent blocks.
-
-            Earlier confidence bucket must not have
-            greater calibrated accuracy than a later bucket.
-        */
+       
         while (blocks.size() >= 2)
         {
             const std::size_t right =
@@ -209,9 +164,7 @@ std::vector<CalibrationBucket> buildCalibrationTable(
         }
     }
 
-    /*
-        Apply the calibrated values back to the buckets.
-    */
+ 
     for (const auto& block : blocks)
     {
         for (std::size_t i = block.first;
@@ -227,18 +180,7 @@ std::vector<CalibrationBucket> buildCalibrationTable(
 }
 
 
-/*
-    Looks up calibrated confidence for a raw confidence value.
 
-    If rawConfidence falls inside a bucket's observed range,
-    that bucket's empirical accuracy is returned.
-
-    Values below/above the observed range are clamped to the
-    nearest bucket's calibrated accuracy.
-
-    If the calibration table is empty, raw confidence is
-    returned unchanged.
-*/
 double lookupCalibratedConfidence(
     const std::vector<CalibrationBucket>& table,
     double rawConfidence
@@ -249,9 +191,7 @@ double lookupCalibratedConfidence(
         return rawConfidence;
     }
 
-    /*
-        Find the bucket containing the confidence value.
-    */
+
     for (const auto& bucket : table)
     {
         if (rawConfidence >= bucket.rawConfidenceLow &&
@@ -261,16 +201,12 @@ double lookupCalibratedConfidence(
         }
     }
 
-    /*
-        Below observed training range.
-    */
+    
     if (rawConfidence < table.front().rawConfidenceLow)
     {
         return table.front().empiricalAccuracy;
     }
 
-    /*
-        Above observed training range.
-    */
+
     return table.back().empiricalAccuracy;
 }
