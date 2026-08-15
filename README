@@ -6,8 +6,38 @@ PatternX takes a stock symbol and a window size (15 / 30 / 60 / 90 days), conver
 
 ```
 Input:  NVIDIA, 30-day window
-Output: Top historical matches (e.g. 96.4% similarity → Oct 2018)
+Output: Top historical matches (e.g. 96.4% similarity → Oct 2018)   
         Weighted expected return over +5 / +10 / +15 / +30 days
+
+
+                               NVIDIA
+                          │
+                          ▼
+                 Current market data
+                          │
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+        15D              30D             60D             90D
+          │               │               │               │
+          ▼               ▼               ▼               ▼
+       Search          Search          Search          Search
+       history         history         history         history
+          │               │               │               │
+          ▼               ▼               ▼               ▼
+       Top-K            Top-K           Top-K           Top-K
+          │               │               │               │
+          └───────────────┴───────────────┴───────────────┘
+                                  │
+                                  ▼
+                       Cross-window aggregation
+                                  │
+                       ┌──────────┴──────────┐
+                       ▼                     ▼
+                     +5D                   +10D
+                       │                     │
+                       └──────────┬──────────┘
+                                  ▼
+                         Confidence / Signal
 ```
 
 Built in C++17, from raw CSV ingestion through FFT, pattern matching, weighted ranking, and a leak-free backtesting framework.
