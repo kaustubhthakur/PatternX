@@ -48,7 +48,7 @@ struct PredictionResult
     double prediction30;
 };
 
-// Majority vote result
+
 struct MajorityVoteResult
 {
     bool prediction5;
