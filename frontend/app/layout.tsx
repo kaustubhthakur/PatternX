@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import AppChrome from "@/components/AppChrome";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +18,9 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body>
         <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <AppChrome>{children}</AppChrome>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
