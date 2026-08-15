@@ -1,19 +1,16 @@
-#ifndef CONFIDENCE_HPP
-#define CONFIDENCE_HPP
+#pragma once
 
-#include <cstddef>
 #include <vector>
-
-#include "WeightedRanking.hpp"
+#include <cstddef>
+#include "WeightedRanking.hpp"   
 
 struct HorizonConfidence
 {
     double confidence = 0.0;
     double positiveWeight = 0.0;
     double negativeWeight = 0.0;
-
-    bool signal = false;
     bool predictedPositive = false;
+    bool signal = false;
 };
 
 struct ConfidenceResult
@@ -29,7 +26,5 @@ ConfidenceResult calculateConfidence(
     const std::vector<WeightedMatch>& weightedMatches,
     std::size_t windowSize,
     double threshold,
-    double minimumExpectedReturn = 0.50
+    double minimumExpectedReturn = 0.0
 );
-
-#endif
