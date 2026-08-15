@@ -8,7 +8,6 @@
 #include "../include/Calibration.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <complex>
 #include <cstddef>
@@ -18,14 +17,40 @@
 namespace
 {
 
+struct HorizonState
+{
+    std::size_t signals = 0;
+    std::size_t correctSignals = 0;
+    std::size_t validSamples = 0;
+    std::size_t actualPositive = 0;
+    std::size_t naiveCorrect = 0;
+    std::size_t majorityCorrect = 0;
+
+    double error = 0.0;
+    double actualReturnSum = 0.0;
+    double totalPnL = 0.0;
+    double grossProfit = 0.0;
+    double grossLoss = 0.0;
+
+    double equity = 0.0;
+    double peakEquity = 0.0;
+    double maxDrawdown = 0.0;
+};
+
+struct MajorityCounts
+{
+    std::size_t positive = 0;
+    std::size_t negative = 0;
+};
+
 double calculateReturn(
     const std::vector<double>& prices,
-    std::size_t startPrice,
-    std::size_t days
+    std::size_t startIndex,
+    std::size_t horizon
 )
 {
     const std::size_t futureIndex =
-        startPrice + days;
+        startIndex + horizon;
 
     if (futureIndex >= prices.size())
     {
@@ -33,57 +58,69 @@ double calculateReturn(
     }
 
     const double currentPrice =
-        prices[startPrice];
-
-    const double futurePrice =
-        prices[futureIndex];
+        prices[startIndex];
 
     if (currentPrice == 0.0)
     {
         return 0.0;
     }
 
-    return ((futurePrice - currentPrice)
-            / currentPrice) * 100.0;
+    return (
+        (prices[futureIndex] - currentPrice)
+        / currentPrice
+    ) * 100.0;
 }
-
 
 double calculateTrailingReturn(
     const std::vector<double>& prices,
-    std::size_t priceIndex,
+    std::size_t index,
     std::size_t days
 )
 {
-    if (priceIndex < days)
+    if (index < days)
     {
         return 0.0;
     }
 
-    const std::size_t pastIndex =
-        priceIndex - days;
+    const double previousPrice =
+        prices[index - days];
 
-    const double pastPrice =
-        prices[pastIndex];
-
-    const double currentPrice =
-        prices[priceIndex];
-
-    if (pastPrice == 0.0)
+    if (previousPrice == 0.0)
     {
         return 0.0;
     }
 
-    return ((currentPrice - pastPrice)
-            / pastPrice) * 100.0;
+    return (
+        (prices[index] - previousPrice)
+        / previousPrice
+    ) * 100.0;
 }
 
+double calculateDirectionalTradeReturn(
+    const std::vector<double>& prices,
+    std::size_t index,
+    std::size_t horizon,
+    bool predictedPositive
+)
+{
+    const double rawReturn =
+        calculateReturn(
+            prices,
+            index,
+            horizon
+        );
+
+    return predictedPositive
+        ? rawReturn
+        : -rawReturn;
+}
 
 double calculateZScore(
     double accuracyPercent,
-    std::size_t n
+    std::size_t samples
 )
 {
-    if (n == 0)
+    if (samples == 0)
     {
         return 0.0;
     }
@@ -94,7 +131,7 @@ double calculateZScore(
     const double standardError =
         std::sqrt(
             0.25 /
-            static_cast<double>(n)
+            static_cast<double>(samples)
         );
 
     if (standardError == 0.0)
@@ -102,70 +139,27 @@ double calculateZScore(
         return 0.0;
     }
 
-    return (observed - 0.5)
-           / standardError;
+    return (
+        observed - 0.5
+    ) / standardError;
 }
 
-
-/*
-    Calculate the actual trading return.
-
-    If predictedPositive == true:
-        Long position.
-
-    If predictedPositive == false:
-        Short position.
-
-    The returned value represents the
-    directional strategy return.
-*/
-double calculateDirectionalTradeReturn(
-    const std::vector<double>& prices,
-    std::size_t currentPriceIndex,
-    std::size_t horizon,
-    bool predictedPositive
+bool isCorrectDirection(
+    double prediction,
+    double actual
 )
 {
-    const std::size_t futureIndex =
-        currentPriceIndex + horizon;
-
-    if (futureIndex >= prices.size())
+    if (prediction == 0.0 || actual == 0.0)
     {
-        return 0.0;
+        return false;
     }
 
-    const double currentPrice =
-        prices[currentPriceIndex];
-
-    const double futurePrice =
-        prices[futureIndex];
-
-    if (currentPrice == 0.0)
-    {
-        return 0.0;
-    }
-
-    const double rawReturn =
-        ((futurePrice - currentPrice)
-         / currentPrice) * 100.0;
-
-    if (predictedPositive)
-    {
-        return rawReturn;
-    }
-
-    return -rawReturn;
+    return (
+        (prediction > 0.0 && actual > 0.0) ||
+        (prediction < 0.0 && actual < 0.0)
+    );
 }
 
-
-/*
-    Build the pattern universe available at a
-    particular query index.
-
-    A historical window is allowed only if its
-    complete future outcome is already known
-    before the query begins.
-*/
 bool buildMatches(
     const std::vector<double>& prices,
     std::size_t currentIndex,
@@ -177,34 +171,24 @@ bool buildMatches(
 {
     weightedMatches.clear();
 
-    if (currentIndex + windowSize >
-        prices.size())
+    if (windowSize == 0 ||
+        currentIndex + windowSize > prices.size())
     {
         return false;
     }
 
-    std::vector<std::vector<double>>
-        signatures;
+    std::vector<std::vector<double>> signatures;
+    std::vector<std::vector<double>> windows;
+    std::vector<std::size_t> candidateIndices;
 
-    std::vector<std::vector<double>>
-        windows;
-
-    std::vector<std::size_t>
-        historicalIndices;
-
-    const std::size_t totalWindows =
-        currentIndex + 1;
-
-    signatures.reserve(totalWindows);
-    windows.reserve(totalWindows);
-    historicalIndices.reserve(totalWindows);
+    signatures.reserve(currentIndex + 1);
+    windows.reserve(currentIndex + 1);
 
     for (std::size_t start = 0;
          start <= currentIndex;
          ++start)
     {
-        if (start + windowSize >
-            prices.size())
+        if (start + windowSize > prices.size())
         {
             break;
         }
@@ -217,73 +201,73 @@ bool buildMatches(
         std::vector<double> normalized =
             normalizeWindow(window);
 
-        std::vector<std::complex<double>>
-            fftResult =
-                computeFFT(normalized);
+        std::vector<std::complex<double>> fftResult =
+            computeFFT(normalized);
 
-        std::vector<double> magnitude =
-            computeMagnitude(fftResult);
+        signatures.push_back(
+            computeMagnitude(fftResult)
+        );
 
-        signatures.push_back(magnitude);
-        windows.push_back(window);
-        historicalIndices.push_back(start);
+        windows.push_back(
+            std::move(window)
+        );
     }
 
-    if (signatures.empty())
+    if (currentIndex >= signatures.size())
     {
         return false;
     }
 
-    const std::vector<double>&
-        currentSignature =
-            signatures[currentIndex];
-
-    const std::vector<double>&
-        currentWindow =
-            windows[currentIndex];
-
-    std::vector<std::vector<double>>
-        historicalSignatures;
-
-    std::vector<std::vector<double>>
-        historicalWindows;
-
-    std::vector<std::size_t>
-        candidateIndices;
-
-    /*
-        STRICT walk-forward restriction.
-
-        Historical pattern's complete future
-        outcome must exist before currentIndex.
-    */
-    for (std::size_t j = 0;
-         j < currentIndex;
-         ++j)
+    for (std::size_t start = 0;
+         start < currentIndex;
+         ++start)
     {
+        const std::size_t historicalEnd =
+            start + windowSize - 1;
+
         const std::size_t futureIndex =
-            j + windowSize - 1 + horizon;
+            historicalEnd + horizon;
 
         if (futureIndex >= currentIndex)
         {
             continue;
         }
 
-        historicalSignatures.push_back(
-            signatures[j]
-        );
-
-        historicalWindows.push_back(
-            windows[j]
-        );
-
-        candidateIndices.push_back(j);
+        candidateIndices.push_back(start);
     }
 
-    if (historicalSignatures.empty())
+    if (candidateIndices.empty())
     {
         return false;
     }
+
+    std::vector<std::vector<double>> historicalSignatures;
+    std::vector<std::vector<double>> historicalWindows;
+
+    historicalSignatures.reserve(
+        candidateIndices.size()
+    );
+
+    historicalWindows.reserve(
+        candidateIndices.size()
+    );
+
+    for (const std::size_t index : candidateIndices)
+    {
+        historicalSignatures.push_back(
+            signatures[index]
+        );
+
+        historicalWindows.push_back(
+            windows[index]
+        );
+    }
+
+    const std::vector<double>& currentSignature =
+        signatures[currentIndex];
+
+    const std::vector<double>& currentWindow =
+        windows[currentIndex];
 
     std::vector<PatternMatch> matches =
         findTopMatches(
@@ -301,26 +285,15 @@ bool buildMatches(
         return false;
     }
 
-    std::vector<std::size_t>
-        windowIndices;
-
-    std::vector<double>
-        distances;
+    std::vector<std::size_t> windowIndices;
+    std::vector<double> distances;
 
     windowIndices.reserve(matches.size());
     distances.reserve(matches.size());
 
     for (const auto& match : matches)
     {
-        /*
-            match.windowIndex is the index inside
-            historicalSignatures.
-
-            Convert it back to the original
-            price-window index.
-        */
-        if (match.windowIndex >=
-            candidateIndices.size())
+        if (match.windowIndex >= candidateIndices.size())
         {
             continue;
         }
@@ -350,20 +323,108 @@ bool buildMatches(
     return !weightedMatches.empty();
 }
 
+double calculateWeightedPrediction(
+    const std::vector<double>& prices,
+    const std::vector<WeightedMatch>& matches,
+    std::size_t windowSize,
+    std::size_t horizon
+)
+{
+    double prediction = 0.0;
 
+    for (const auto& match : matches)
+    {
+        const std::size_t historicalEnd =
+            match.windowIndex +
+            windowSize - 1;
 
-/*
-    Build a calibration table from observations that are fully
-    contained inside the training period.
+        const double historicalReturn =
+            calculateReturn(
+                prices,
+                historicalEnd,
+                horizon
+            );
 
-    IMPORTANT:
-    A calibration point at queryIndex is only created when the
-    complete future outcome for the selected horizon is already
-    known before trainingEnd. This prevents future/test leakage.
+        prediction +=
+            match.normalizedWeight *
+            historicalReturn;
+    }
 
-    Calibration is built separately for each horizon because the
-    confidence score has a different meaning at +5/+10/+15/+30.
-*/
+    return prediction;
+}
+
+double calculatePredictionAgreement(
+    bool valid5,
+    bool positive5,
+    bool valid10,
+    bool positive10,
+    bool valid15,
+    bool positive15,
+    bool valid30,
+    bool positive30
+)
+{
+    std::size_t valid = 0;
+    std::size_t positive = 0;
+
+    if (valid5)
+    {
+        ++valid;
+
+        if (positive5)
+        {
+            ++positive;
+        }
+    }
+
+    if (valid10)
+    {
+        ++valid;
+
+        if (positive10)
+        {
+            ++positive;
+        }
+    }
+
+    if (valid15)
+    {
+        ++valid;
+
+        if (positive15)
+        {
+            ++positive;
+        }
+    }
+
+    if (valid30)
+    {
+        ++valid;
+
+        if (positive30)
+        {
+            ++positive;
+        }
+    }
+
+    if (valid == 0)
+    {
+        return 0.0;
+    }
+
+    const std::size_t negative =
+        valid - positive;
+
+    const std::size_t dominant =
+        std::max(
+            positive,
+            negative
+        );
+
+    return static_cast<double>(dominant) /
+           static_cast<double>(valid);
+}
+
 std::vector<CalibrationPoint> collectCalibrationPoints(
     const std::vector<double>& prices,
     std::size_t trainingEnd,
@@ -375,37 +436,20 @@ std::vector<CalibrationPoint> collectCalibrationPoints(
 {
     std::vector<CalibrationPoint> points;
 
-    if (trainingEnd <= windowSize)
-    {
-        return points;
-    }
-
     if (step == 0)
     {
         step = 1;
     }
 
-    /*
-        Leave enough history for matching and enough room for the
-        complete horizon outcome to be known inside the training set.
-    */
-    const std::size_t minimumQueryIndex =
-        windowSize + horizon + 1;
-
-    if (trainingEnd <= minimumQueryIndex)
+    if (trainingEnd <= windowSize)
     {
         return points;
     }
 
-    /*
-        Use only query points whose complete outcome lies strictly
-        before the training boundary.
+    const std::size_t minimumQuery =
+        windowSize + horizon;
 
-        We deliberately use the same step as the backtest so the
-        calibration sample is computationally manageable and has
-        the same temporal sampling characteristics.
-    */
-    for (std::size_t queryIndex = minimumQueryIndex;
+    for (std::size_t queryIndex = minimumQuery;
          queryIndex < trainingEnd;
          queryIndex += step)
     {
@@ -417,10 +461,6 @@ std::vector<CalibrationPoint> collectCalibrationPoints(
             break;
         }
 
-        /*
-            The historical outcome must be completely known inside
-            the training period.
-        */
         if (predictionIndex + horizon >= trainingEnd)
         {
             break;
@@ -439,13 +479,6 @@ std::vector<CalibrationPoint> collectCalibrationPoints(
             continue;
         }
 
-        /*
-            Use the existing PatternX confidence calculation.
-
-            The threshold is irrelevant here because we only need
-            the raw confidence value. Signal generation is performed
-            later using the calibrated confidence.
-        */
         const ConfidenceResult confidence =
             calculateConfidence(
                 prices,
@@ -501,25 +534,26 @@ std::vector<CalibrationPoint> collectCalibrationPoints(
                 horizon
             );
 
-        /*
-            A calibration point records whether the directional
-            prediction was correct.
-        */
-        const bool wasCorrect =
-            (predictedPositive && actualReturn > 0.0) ||
-            (!predictedPositive && actualReturn < 0.0);
+        if (actualReturn == 0.0)
+        {
+            continue;
+        }
+
+        const bool correct =
+            predictedPositive
+                ? actualReturn > 0.0
+                : actualReturn < 0.0;
 
         points.push_back(
             CalibrationPoint{
                 rawConfidence,
-                wasCorrect
+                correct
             }
         );
     }
 
     return points;
 }
-
 
 std::vector<CalibrationBucket> buildTrainingCalibrationTable(
     const std::vector<double>& prices,
@@ -530,7 +564,7 @@ std::vector<CalibrationBucket> buildTrainingCalibrationTable(
     std::size_t step
 )
 {
-    const std::vector<CalibrationPoint> points =
+    const auto points =
         collectCalibrationPoints(
             prices,
             trainingEnd,
@@ -540,155 +574,256 @@ std::vector<CalibrationBucket> buildTrainingCalibrationTable(
             step
         );
 
-    /*
-        Ten buckets are used by default, but the Calibration module
-        itself will safely return an empty table when insufficient
-        training observations are available.
-    */
     return buildCalibrationTable(
         points,
         10
     );
 }
 
-
-
-/*
-    ============================================================
-    PREDICTION AGREEMENT
-    ============================================================
-
-    Measures how strongly the four horizons agree on direction.
-
-    Example:
-        +5  UP
-        +10 UP
-        +15 UP
-        +30 DOWN
-
-    Agreement = 3 / 4 = 75%.
-
-    A horizon receives the agreement of the group that shares
-    its direction. This is intentionally direction-only; the
-    confidence and expected-return magnitude remain separate
-    signals.
-
-    With four horizons:
-        100% = 4/4 agree
-         75% = 3/4 agree
-         50% = 2/4 split
-         25% = 1/4
-*/
-double calculatePredictionAgreement(
-    bool valid5,
-    bool predictedPositive5,
-    bool valid10,
-    bool predictedPositive10,
-    bool valid15,
-    bool predictedPositive15,
-    bool valid30,
-    bool predictedPositive30
-)
-{
-    std::size_t validCount = 0;
-    std::size_t positiveCount = 0;
-
-    if (valid5)
-    {
-        ++validCount;
-        if (predictedPositive5)
-        {
-            ++positiveCount;
-        }
-    }
-
-    if (valid10)
-    {
-        ++validCount;
-        if (predictedPositive10)
-        {
-            ++positiveCount;
-        }
-    }
-
-    if (valid15)
-    {
-        ++validCount;
-        if (predictedPositive15)
-        {
-            ++positiveCount;
-        }
-    }
-
-    if (valid30)
-    {
-        ++validCount;
-        if (predictedPositive30)
-        {
-            ++positiveCount;
-        }
-    }
-
-    if (validCount == 0)
-    {
-        return 0.0;
-    }
-
-    const std::size_t negativeCount =
-        validCount - positiveCount;
-
-    const std::size_t dominantCount =
-        std::max(
-            positiveCount,
-            negativeCount
-        );
-
-    return static_cast<double>(dominantCount) /
-           static_cast<double>(validCount);
-}
-
-
-double calculateWeightedPredictionFromMatches(
+MajorityCounts calculateMajorityCounts(
     const std::vector<double>& prices,
-    const std::vector<WeightedMatch>& matches,
+    std::size_t currentIndex,
     std::size_t windowSize,
     std::size_t horizon
 )
 {
-    double prediction = 0.0;
+    MajorityCounts counts{};
 
-    for (const auto& match : matches)
+    if (currentIndex <= windowSize)
     {
-        const std::size_t historicalWindow =
-            match.windowIndex;
+        return counts;
+    }
 
-        const std::size_t endPriceIndex =
-            historicalWindow +
-            windowSize - 1;
+    for (std::size_t start = 0;
+         start < currentIndex;
+         ++start)
+    {
+        const std::size_t historicalEnd =
+            start + windowSize - 1;
 
-        const double historicalReturn =
+        if (historicalEnd >= currentIndex)
+        {
+            continue;
+        }
+
+        const std::size_t futureIndex =
+            historicalEnd + horizon;
+
+        if (futureIndex >= currentIndex)
+        {
+            continue;
+        }
+
+        const double result =
             calculateReturn(
                 prices,
-                endPriceIndex,
+                historicalEnd,
                 horizon
             );
 
-        prediction +=
-            match.normalizedWeight *
-            historicalReturn;
+        if (result > 0.0)
+        {
+            ++counts.positive;
+        }
+        else if (result < 0.0)
+        {
+            ++counts.negative;
+        }
     }
 
-    return prediction;
+    return counts;
+}
+
+bool majorityPrediction(
+    const MajorityCounts& counts
+)
+{
+    if (counts.positive == 0 &&
+        counts.negative == 0)
+    {
+        return false;
+    }
+
+    return counts.positive >=
+           counts.negative;
+}
+
+void updateSignalStatistics(
+    HorizonState& state,
+    double actualReturn,
+    double tradeReturn
+)
+{
+    ++state.signals;
+
+    state.actualReturnSum +=
+        actualReturn;
+
+    state.totalPnL +=
+        tradeReturn;
+
+    if (tradeReturn > 0.0)
+    {
+        ++state.correctSignals;
+        state.grossProfit += tradeReturn;
+    }
+    else if (tradeReturn < 0.0)
+    {
+        state.grossLoss +=
+            std::abs(tradeReturn);
+    }
+
+    state.equity += tradeReturn;
+
+    state.peakEquity =
+        std::max(
+            state.peakEquity,
+            state.equity
+        );
+
+    state.maxDrawdown =
+        std::max(
+            state.maxDrawdown,
+            state.peakEquity -
+            state.equity
+        );
+}
+
+void updateBaselineStatistics(
+    HorizonState& state,
+    double actualReturn,
+    bool naivePrediction,
+    bool majorityPredictionValue
+)
+{
+    ++state.validSamples;
+
+    if (actualReturn > 0.0)
+    {
+        ++state.actualPositive;
+    }
+
+    if (
+        (naivePrediction && actualReturn > 0.0) ||
+        (!naivePrediction && actualReturn < 0.0)
+    )
+    {
+        ++state.naiveCorrect;
+    }
+
+    if (
+        (majorityPredictionValue &&
+         actualReturn > 0.0) ||
+        (!majorityPredictionValue &&
+         actualReturn < 0.0)
+    )
+    {
+        ++state.majorityCorrect;
+    }
+}
+
+void assignMetrics(
+    BacktestMetrics& metrics,
+    const HorizonState& state,
+    double& mae,
+    double& coverage,
+    double& signalAccuracy,
+    double& averageReturnWhenSignaled,
+    double& totalReturn,
+    double& averageTradeReturn,
+    double& winRate,
+    double& profitFactor,
+    double& maxDrawdown,
+    double& baseRate,
+    double& naiveAccuracy,
+    double& directionalAccuracy,
+    double& zScore
+)
+{
+    const std::size_t samples =
+        state.validSamples;
+
+    if (samples > 0)
+    {
+        mae =
+            state.error /
+            static_cast<double>(samples);
+
+        baseRate =
+            static_cast<double>(
+                state.actualPositive
+            ) /
+            static_cast<double>(samples) *
+            100.0;
+
+        naiveAccuracy =
+            static_cast<double>(
+                state.naiveCorrect
+            ) /
+            static_cast<double>(samples) *
+            100.0;
+
+        directionalAccuracy =
+            static_cast<double>(
+                state.majorityCorrect
+            ) /
+            static_cast<double>(samples) *
+            100.0;
+    }
+
+    if (state.signals > 0)
+    {
+        coverage =
+            static_cast<double>(
+                state.signals
+            ) /
+            static_cast<double>(samples) *
+            100.0;
+
+        signalAccuracy =
+            static_cast<double>(
+                state.correctSignals
+            ) /
+            static_cast<double>(state.signals) *
+            100.0;
+
+        averageReturnWhenSignaled =
+            state.actualReturnSum /
+            static_cast<double>(state.signals);
+
+        averageTradeReturn =
+            state.totalPnL /
+            static_cast<double>(state.signals);
+
+        winRate =
+            static_cast<double>(
+                state.correctSignals
+            ) /
+            static_cast<double>(state.signals) *
+            100.0;
+
+        profitFactor =
+            state.grossLoss > 0.0
+                ? state.grossProfit /
+                  state.grossLoss
+                : 0.0;
+
+        zScore =
+            calculateZScore(
+                signalAccuracy,
+                state.signals
+            );
+    }
+
+    totalReturn =
+        state.totalPnL;
+
+    maxDrawdown =
+        state.maxDrawdown;
 }
 
 }
 
-
-/*
-============================================================
-EXISTING BACKTEST
-============================================================
-*/
 BacktestMetrics runBacktest(
     const std::vector<double>& prices,
     std::size_t windowSize,
@@ -698,55 +833,46 @@ BacktestMetrics runBacktest(
 {
     BacktestMetrics metrics{};
 
-    if (prices.size() <
-        windowSize + 30)
-    {
-        return metrics;
-    }
-
     if (step == 0)
     {
         step = 1;
     }
 
-    double error5 = 0.0;
-    double error10 = 0.0;
-    double error15 = 0.0;
-    double error30 = 0.0;
+    if (windowSize == 0 ||
+        prices.size() <=
+            windowSize + 30)
+    {
+        return metrics;
+    }
 
-    std::size_t correct5 = 0;
-    std::size_t correct10 = 0;
-    std::size_t correct15 = 0;
-    std::size_t correct30 = 0;
+    HorizonState state5{};
+    HorizonState state10{};
+    HorizonState state15{};
+    HorizonState state30{};
 
-    std::size_t actualPositive5 = 0;
-    std::size_t actualPositive10 = 0;
-    std::size_t actualPositive15 = 0;
-    std::size_t actualPositive30 = 0;
-
-    std::size_t naiveCorrect5 = 0;
-    std::size_t naiveCorrect10 = 0;
-    std::size_t naiveCorrect15 = 0;
-    std::size_t naiveCorrect30 = 0;
-
-    const std::size_t MIN_HISTORY =
+    const std::size_t minimumHistory =
         windowSize + 30 + 10;
 
-    for (std::size_t currentIndex = MIN_HISTORY;
-         currentIndex + 30 < prices.size();
+    for (std::size_t currentIndex =
+             minimumHistory;
+         currentIndex + 30 <
+             prices.size();
          currentIndex += step)
     {
-        std::vector<WeightedMatch>
-            matches5;
+        const std::size_t currentPriceIndex =
+            currentIndex +
+            windowSize - 1;
 
-        std::vector<WeightedMatch>
-            matches10;
+        if (currentPriceIndex + 30 >=
+            prices.size())
+        {
+            break;
+        }
 
-        std::vector<WeightedMatch>
-            matches15;
-
-        std::vector<WeightedMatch>
-            matches30;
+        std::vector<WeightedMatch> matches5;
+        std::vector<WeightedMatch> matches10;
+        std::vector<WeightedMatch> matches15;
+        std::vector<WeightedMatch> matches30;
 
         const bool valid5 =
             buildMatches(
@@ -798,7 +924,7 @@ BacktestMetrics runBacktest(
 
         const double prediction5 =
             valid5
-                ? calculateWeightedPredictionFromMatches(
+                ? calculateWeightedPrediction(
                     prices,
                     matches5,
                     windowSize,
@@ -808,7 +934,7 @@ BacktestMetrics runBacktest(
 
         const double prediction10 =
             valid10
-                ? calculateWeightedPredictionFromMatches(
+                ? calculateWeightedPrediction(
                     prices,
                     matches10,
                     windowSize,
@@ -818,7 +944,7 @@ BacktestMetrics runBacktest(
 
         const double prediction15 =
             valid15
-                ? calculateWeightedPredictionFromMatches(
+                ? calculateWeightedPrediction(
                     prices,
                     matches15,
                     windowSize,
@@ -828,17 +954,13 @@ BacktestMetrics runBacktest(
 
         const double prediction30 =
             valid30
-                ? calculateWeightedPredictionFromMatches(
+                ? calculateWeightedPrediction(
                     prices,
                     matches30,
                     windowSize,
                     30
                   )
                 : 0.0;
-
-        const std::size_t currentPriceIndex =
-            currentIndex +
-            windowSize - 1;
 
         const double actual5 =
             calculateReturn(
@@ -870,184 +992,93 @@ BacktestMetrics runBacktest(
 
         if (valid5)
         {
-            error5 +=
+            ++state5.validSamples;
+            state5.error +=
                 std::abs(
-                    prediction5 - actual5
+                    prediction5 -
+                    actual5
                 );
 
-            if (
-                (prediction5 >= 0.0 &&
-                 actual5 >= 0.0) ||
-                (prediction5 < 0.0 &&
-                 actual5 < 0.0)
-            )
+            if (actual5 > 0.0)
             {
-                ++correct5;
+                ++state5.actualPositive;
             }
 
-            if (actual5 >= 0.0)
-                ++actualPositive5;
+            if (isCorrectDirection(
+                    prediction5,
+                    actual5))
+            {
+                ++state5.majorityCorrect;
+            }
         }
 
         if (valid10)
         {
-            error10 +=
+            ++state10.validSamples;
+            state10.error +=
                 std::abs(
-                    prediction10 - actual10
+                    prediction10 -
+                    actual10
                 );
 
-            if (
-                (prediction10 >= 0.0 &&
-                 actual10 >= 0.0) ||
-                (prediction10 < 0.0 &&
-                 actual10 < 0.0)
-            )
+            if (actual10 > 0.0)
             {
-                ++correct10;
+                ++state10.actualPositive;
             }
 
-            if (actual10 >= 0.0)
-                ++actualPositive10;
+            if (isCorrectDirection(
+                    prediction10,
+                    actual10))
+            {
+                ++state10.majorityCorrect;
+            }
         }
 
         if (valid15)
         {
-            error15 +=
+            ++state15.validSamples;
+            state15.error +=
                 std::abs(
-                    prediction15 - actual15
+                    prediction15 -
+                    actual15
                 );
 
-            if (
-                (prediction15 >= 0.0 &&
-                 actual15 >= 0.0) ||
-                (prediction15 < 0.0 &&
-                 actual15 < 0.0)
-            )
+            if (actual15 > 0.0)
             {
-                ++correct15;
+                ++state15.actualPositive;
             }
 
-            if (actual15 >= 0.0)
-                ++actualPositive15;
+            if (isCorrectDirection(
+                    prediction15,
+                    actual15))
+            {
+                ++state15.majorityCorrect;
+            }
         }
 
         if (valid30)
         {
-            error30 +=
+            ++state30.validSamples;
+            state30.error +=
                 std::abs(
-                    prediction30 - actual30
+                    prediction30 -
+                    actual30
                 );
 
-            if (
-                (prediction30 >= 0.0 &&
-                 actual30 >= 0.0) ||
-                (prediction30 < 0.0 &&
-                 actual30 < 0.0)
-            )
+            if (actual30 > 0.0)
             {
-                ++correct30;
+                ++state30.actualPositive;
             }
 
-            if (actual30 >= 0.0)
-                ++actualPositive30;
-        }
-
-        const double trailingReturn =
-            calculateTrailingReturn(
-                prices,
-                currentPriceIndex,
-                5
-            );
-
-        if (
-            valid5 &&
-            (
-                (trailingReturn >= 0.0 &&
-                 actual5 >= 0.0) ||
-                (trailingReturn < 0.0 &&
-                 actual5 < 0.0)
-            )
-        )
-        {
-            ++naiveCorrect5;
-        }
-
-        if (
-            valid10 &&
-            (
-                (trailingReturn >= 0.0 &&
-                 actual10 >= 0.0) ||
-                (trailingReturn < 0.0 &&
-                 actual10 < 0.0)
-            )
-        )
-        {
-            ++naiveCorrect10;
-        }
-
-        if (
-            valid15 &&
-            (
-                (trailingReturn >= 0.0 &&
-                 actual15 >= 0.0) ||
-                (trailingReturn < 0.0 &&
-                 actual15 < 0.0)
-            )
-        )
-        {
-            ++naiveCorrect15;
-        }
-
-        if (
-            valid30 &&
-            (
-                (trailingReturn >= 0.0 &&
-                 actual30 >= 0.0) ||
-                (trailingReturn < 0.0 &&
-                 actual30 < 0.0)
-            )
-        )
-        {
-            ++naiveCorrect30;
+            if (isCorrectDirection(
+                    prediction30,
+                    actual30))
+            {
+                ++state30.majorityCorrect;
+            }
         }
 
         ++metrics.samples;
-
-        if (metrics.samples <= 5)
-        {
-            std::cout
-                << "\nBacktest sample "
-                << metrics.samples
-                << "\n";
-
-            std::cout
-                << "+5  Predicted: "
-                << prediction5
-                << "% | Actual: "
-                << actual5
-                << "%\n";
-
-            std::cout
-                << "+10 Predicted: "
-                << prediction10
-                << "% | Actual: "
-                << actual10
-                << "%\n";
-
-            std::cout
-                << "+15 Predicted: "
-                << prediction15
-                << "% | Actual: "
-                << actual15
-                << "%\n";
-
-            std::cout
-                << "+30 Predicted: "
-                << prediction30
-                << "% | Actual: "
-                << actual30
-                << "%\n";
-        }
     }
 
     if (metrics.samples == 0)
@@ -1056,102 +1087,128 @@ BacktestMetrics runBacktest(
     }
 
     metrics.mae5 =
-        error5 /
-        metrics.samples;
+        state5.validSamples > 0
+            ? state5.error /
+              state5.validSamples
+            : 0.0;
 
     metrics.mae10 =
-        error10 /
-        metrics.samples;
+        state10.validSamples > 0
+            ? state10.error /
+              state10.validSamples
+            : 0.0;
 
     metrics.mae15 =
-        error15 /
-        metrics.samples;
+        state15.validSamples > 0
+            ? state15.error /
+              state15.validSamples
+            : 0.0;
 
     metrics.mae30 =
-        error30 /
-        metrics.samples;
+        state30.validSamples > 0
+            ? state30.error /
+              state30.validSamples
+            : 0.0;
 
     metrics.directionalAccuracy5 =
-        (static_cast<double>(correct5) /
-         metrics.samples) * 100.0;
+        state5.validSamples > 0
+            ? static_cast<double>(
+                  state5.majorityCorrect
+              ) /
+              state5.validSamples *
+              100.0
+            : 0.0;
 
     metrics.directionalAccuracy10 =
-        (static_cast<double>(correct10) /
-         metrics.samples) * 100.0;
+        state10.validSamples > 0
+            ? static_cast<double>(
+                  state10.majorityCorrect
+              ) /
+              state10.validSamples *
+              100.0
+            : 0.0;
 
     metrics.directionalAccuracy15 =
-        (static_cast<double>(correct15) /
-         metrics.samples) * 100.0;
+        state15.validSamples > 0
+            ? static_cast<double>(
+                  state15.majorityCorrect
+              ) /
+              state15.validSamples *
+              100.0
+            : 0.0;
 
     metrics.directionalAccuracy30 =
-        (static_cast<double>(correct30) /
-         metrics.samples) * 100.0;
+        state30.validSamples > 0
+            ? static_cast<double>(
+                  state30.majorityCorrect
+              ) /
+              state30.validSamples *
+              100.0
+            : 0.0;
 
     metrics.baseRatePositive5 =
-        (static_cast<double>(actualPositive5) /
-         metrics.samples) * 100.0;
+        state5.validSamples > 0
+            ? static_cast<double>(
+                  state5.actualPositive
+              ) /
+              state5.validSamples *
+              100.0
+            : 0.0;
 
     metrics.baseRatePositive10 =
-        (static_cast<double>(actualPositive10) /
-         metrics.samples) * 100.0;
+        state10.validSamples > 0
+            ? static_cast<double>(
+                  state10.actualPositive
+              ) /
+              state10.validSamples *
+              100.0
+            : 0.0;
 
     metrics.baseRatePositive15 =
-        (static_cast<double>(actualPositive15) /
-         metrics.samples) * 100.0;
+        state15.validSamples > 0
+            ? static_cast<double>(
+                  state15.actualPositive
+              ) /
+              state15.validSamples *
+              100.0
+            : 0.0;
 
     metrics.baseRatePositive30 =
-        (static_cast<double>(actualPositive30) /
-         metrics.samples) * 100.0;
-
-    metrics.naiveAccuracy5 =
-        (static_cast<double>(naiveCorrect5) /
-         metrics.samples) * 100.0;
-
-    metrics.naiveAccuracy10 =
-        (static_cast<double>(naiveCorrect10) /
-         metrics.samples) * 100.0;
-
-    metrics.naiveAccuracy15 =
-        (static_cast<double>(naiveCorrect15) /
-         metrics.samples) * 100.0;
-
-    metrics.naiveAccuracy30 =
-        (static_cast<double>(naiveCorrect30) /
-         metrics.samples) * 100.0;
+        state30.validSamples > 0
+            ? static_cast<double>(
+                  state30.actualPositive
+              ) /
+              state30.validSamples *
+              100.0
+            : 0.0;
 
     metrics.zScore5 =
         calculateZScore(
             metrics.directionalAccuracy5,
-            metrics.samples
+            state5.validSamples
         );
 
     metrics.zScore10 =
         calculateZScore(
             metrics.directionalAccuracy10,
-            metrics.samples
+            state10.validSamples
         );
 
     metrics.zScore15 =
         calculateZScore(
             metrics.directionalAccuracy15,
-            metrics.samples
+            state15.validSamples
         );
 
     metrics.zScore30 =
         calculateZScore(
             metrics.directionalAccuracy30,
-            metrics.samples
+            state30.validSamples
         );
 
     return metrics;
 }
 
-
-/*
-============================================================
-CONFIDENCE WALK-FORWARD BACKTEST
-============================================================
-*/
 BacktestMetrics runConfidenceBacktest(
     const std::vector<double>& prices,
     std::size_t windowSize,
@@ -1166,15 +1223,16 @@ BacktestMetrics runConfidenceBacktest(
     metrics.confidenceThreshold =
         confidenceThreshold;
 
-    if (prices.size() <
-        windowSize + 30)
-    {
-        return metrics;
-    }
-
     if (step == 0)
     {
         step = 1;
+    }
+
+    if (windowSize == 0 ||
+        prices.size() <=
+            windowSize + 30)
+    {
+        return metrics;
     }
 
     if (trainRatio <= 0.0 ||
@@ -1189,210 +1247,71 @@ BacktestMetrics runConfidenceBacktest(
         return metrics;
     }
 
-    /*
-        Initial training boundary.
-
-        This is a PRICE INDEX boundary.
-    */
-    const std::size_t initialTrainEnd =
+    const std::size_t trainingEnd =
         static_cast<std::size_t>(
-            static_cast<double>(prices.size())
-            * trainRatio
+            static_cast<double>(prices.size()) *
+            trainRatio
         );
 
-    if (initialTrainEnd < windowSize)
+    if (trainingEnd <= windowSize)
     {
         return metrics;
     }
 
-    /*
-        The query window ends exactly at the
-        initial training boundary.
-
-        Example:
-
-            window = 30
-            trainEnd = 1731
-
-            query = 1702 -> 1731
-            prediction point = 1731
-    */
     const std::size_t firstTestWindow =
-        initialTrainEnd -
+        trainingEnd -
         windowSize +
         1;
 
-    std::cout
-        << "\nTrain ratio : "
-        << trainRatio * 100.0
-        << "%\n";
-
-    std::cout
-        << "Initial train end index : "
-        << initialTrainEnd
-        << "\n";
-
-    std::cout
-        << "First test window index : "
-        << firstTestWindow
-        << "\n";
-
-    /*
-        ========================================================
-        TRAINING-ONLY CONFIDENCE CALIBRATION
-        ========================================================
-
-        Calibration is built once from the initial training period.
-        No test-period observations are used.
-
-        Separate calibration tables are maintained for each horizon
-        because confidence at +5 days does not necessarily have the
-        same empirical meaning as confidence at +30 days.
-    */
-    const std::vector<CalibrationBucket> calibration5 =
+    const auto calibration5 =
         buildTrainingCalibrationTable(
             prices,
-            initialTrainEnd,
+            trainingEnd,
             windowSize,
             topK,
             5,
             step
         );
 
-    const std::vector<CalibrationBucket> calibration10 =
+    const auto calibration10 =
         buildTrainingCalibrationTable(
             prices,
-            initialTrainEnd,
+            trainingEnd,
             windowSize,
             topK,
             10,
             step
         );
 
-    const std::vector<CalibrationBucket> calibration15 =
+    const auto calibration15 =
         buildTrainingCalibrationTable(
             prices,
-            initialTrainEnd,
+            trainingEnd,
             windowSize,
             topK,
             15,
             step
         );
 
-    const std::vector<CalibrationBucket> calibration30 =
+    const auto calibration30 =
         buildTrainingCalibrationTable(
             prices,
-            initialTrainEnd,
+            trainingEnd,
             windowSize,
             topK,
             30,
             step
         );
 
-    std::cout
-        << "Calibration buckets (+5/+10/+15/+30): "
-        << calibration5.size()
-        << "/"
-        << calibration10.size()
-        << "/"
-        << calibration15.size()
-        << "/"
-        << calibration30.size()
-        << "\n";
+    HorizonState state5{};
+    HorizonState state10{};
+    HorizonState state15{};
+    HorizonState state30{};
 
-    /*
-        Signal statistics.
-    */
-    std::size_t signals5 = 0;
-    std::size_t signals10 = 0;
-    std::size_t signals15 = 0;
-    std::size_t signals30 = 0;
-
-    std::size_t correctSignals5 = 0;
-    std::size_t correctSignals10 = 0;
-    std::size_t correctSignals15 = 0;
-    std::size_t correctSignals30 = 0;
-
-    double returnWhenSignaled5 = 0.0;
-    double returnWhenSignaled10 = 0.0;
-    double returnWhenSignaled15 = 0.0;
-    double returnWhenSignaled30 = 0.0;
-
-    /*
-        P&L statistics.
-    */
-    double totalPnL5 = 0.0;
-    double totalPnL10 = 0.0;
-    double totalPnL15 = 0.0;
-    double totalPnL30 = 0.0;
-
-    double grossProfit5 = 0.0;
-    double grossProfit10 = 0.0;
-    double grossProfit15 = 0.0;
-    double grossProfit30 = 0.0;
-
-    double grossLoss5 = 0.0;
-    double grossLoss10 = 0.0;
-    double grossLoss15 = 0.0;
-    double grossLoss30 = 0.0;
-
-    /*
-        Equity curves for drawdown.
-    */
-    double equity5 = 0.0;
-    double equity10 = 0.0;
-    double equity15 = 0.0;
-    double equity30 = 0.0;
-
-    double peakEquity5 = 0.0;
-    double peakEquity10 = 0.0;
-    double peakEquity15 = 0.0;
-    double peakEquity30 = 0.0;
-
-    double maxDrawdown5 = 0.0;
-    double maxDrawdown10 = 0.0;
-    double maxDrawdown15 = 0.0;
-    double maxDrawdown30 = 0.0;
-
-    /*
-        Training-only majority statistics.
-    */
-    std::size_t majorityPositive5 = 0;
-    std::size_t majorityNegative5 = 0;
-
-    std::size_t majorityPositive10 = 0;
-    std::size_t majorityNegative10 = 0;
-
-    std::size_t majorityPositive15 = 0;
-    std::size_t majorityNegative15 = 0;
-
-    std::size_t majorityPositive30 = 0;
-    std::size_t majorityNegative30 = 0;
-
-    std::size_t majorityCorrect5 = 0;
-    std::size_t majorityCorrect10 = 0;
-    std::size_t majorityCorrect15 = 0;
-    std::size_t majorityCorrect30 = 0;
-
-    std::size_t actualPositive5 = 0;
-    std::size_t actualPositive10 = 0;
-    std::size_t actualPositive15 = 0;
-    std::size_t actualPositive30 = 0;
-
-    std::size_t naiveCorrect5 = 0;
-    std::size_t naiveCorrect10 = 0;
-    std::size_t naiveCorrect15 = 0;
-    std::size_t naiveCorrect30 = 0;
-
-    /*
-        Walk forward through the test set.
-    */
     for (std::size_t currentIndex =
              firstTestWindow;
-
          currentIndex + 30 <
              prices.size();
-
          currentIndex += step)
     {
         const std::size_t currentPriceIndex =
@@ -1405,24 +1324,11 @@ BacktestMetrics runConfidenceBacktest(
             break;
         }
 
-        std::vector<WeightedMatch>
-            matches5;
+        std::vector<WeightedMatch> matches5;
+        std::vector<WeightedMatch> matches10;
+        std::vector<WeightedMatch> matches15;
+        std::vector<WeightedMatch> matches30;
 
-        std::vector<WeightedMatch>
-            matches10;
-
-        std::vector<WeightedMatch>
-            matches15;
-
-        std::vector<WeightedMatch>
-            matches30;
-
-        /*
-            IMPORTANT:
-
-            Do NOT discard the entire sample if
-            one horizon cannot build matches.
-        */
         const bool valid5 =
             buildMatches(
                 prices,
@@ -1471,52 +1377,6 @@ BacktestMetrics runConfidenceBacktest(
             continue;
         }
 
-        /*
-            PatternX weighted predictions.
-        */
-        const double prediction5 =
-            valid5
-                ? calculateWeightedPredictionFromMatches(
-                    prices,
-                    matches5,
-                    windowSize,
-                    5
-                  )
-                : 0.0;
-
-        const double prediction10 =
-            valid10
-                ? calculateWeightedPredictionFromMatches(
-                    prices,
-                    matches10,
-                    windowSize,
-                    10
-                  )
-                : 0.0;
-
-        const double prediction15 =
-            valid15
-                ? calculateWeightedPredictionFromMatches(
-                    prices,
-                    matches15,
-                    windowSize,
-                    15
-                  )
-                : 0.0;
-
-        const double prediction30 =
-            valid30
-                ? calculateWeightedPredictionFromMatches(
-                    prices,
-                    matches30,
-                    windowSize,
-                    30
-                  )
-                : 0.0;
-
-        /*
-            Actual test returns.
-        */
         const double actual5 =
             calculateReturn(
                 prices,
@@ -1545,33 +1405,55 @@ BacktestMetrics runConfidenceBacktest(
                 30
             );
 
-        /*
-            ========================================================
-            RAW + CALIBRATED CONFIDENCE
-            ========================================================
+        const double prediction5 =
+            valid5
+                ? calculateWeightedPrediction(
+                    prices,
+                    matches5,
+                    windowSize,
+                    5
+                  )
+                : 0.0;
 
-            calculateConfidence() still produces the original raw
-            PatternX confidence.
+        const double prediction10 =
+            valid10
+                ? calculateWeightedPrediction(
+                    prices,
+                    matches10,
+                    windowSize,
+                    10
+                  )
+                : 0.0;
 
-            The calibrated value is then obtained exclusively from
-            the training-period calibration table.
+        const double prediction15 =
+            valid15
+                ? calculateWeightedPrediction(
+                    prices,
+                    matches15,
+                    windowSize,
+                    15
+                  )
+                : 0.0;
 
-            Signal generation below uses calibrated confidence.
-        */
+        const double prediction30 =
+            valid30
+                ? calculateWeightedPrediction(
+                    prices,
+                    matches30,
+                    windowSize,
+                    30
+                  )
+                : 0.0;
+
         ConfidenceResult confidence5{};
         ConfidenceResult confidence10{};
         ConfidenceResult confidence15{};
         ConfidenceResult confidence30{};
 
-        double rawConfidence5 = 0.0;
-        double rawConfidence10 = 0.0;
-        double rawConfidence15 = 0.0;
-        double rawConfidence30 = 0.0;
-
-        double calibratedConfidence5 = 0.0;
-        double calibratedConfidence10 = 0.0;
-        double calibratedConfidence15 = 0.0;
-        double calibratedConfidence30 = 0.0;
+        double calibrated5 = 0.0;
+        double calibrated10 = 0.0;
+        double calibrated15 = 0.0;
+        double calibrated30 = 0.0;
 
         if (valid5)
         {
@@ -1583,13 +1465,10 @@ BacktestMetrics runConfidenceBacktest(
                     confidenceThreshold
                 );
 
-            rawConfidence5 =
-                confidence5.confidence5.confidence;
-
-            calibratedConfidence5 =
+            calibrated5 =
                 lookupCalibratedConfidence(
                     calibration5,
-                    rawConfidence5
+                    confidence5.confidence5.confidence
                 );
         }
 
@@ -1603,13 +1482,10 @@ BacktestMetrics runConfidenceBacktest(
                     confidenceThreshold
                 );
 
-            rawConfidence10 =
-                confidence10.confidence10.confidence;
-
-            calibratedConfidence10 =
+            calibrated10 =
                 lookupCalibratedConfidence(
                     calibration10,
-                    rawConfidence10
+                    confidence10.confidence10.confidence
                 );
         }
 
@@ -1623,13 +1499,10 @@ BacktestMetrics runConfidenceBacktest(
                     confidenceThreshold
                 );
 
-            rawConfidence15 =
-                confidence15.confidence15.confidence;
-
-            calibratedConfidence15 =
+            calibrated15 =
                 lookupCalibratedConfidence(
                     calibration15,
-                    rawConfidence15
+                    confidence15.confidence15.confidence
                 );
         }
 
@@ -1643,31 +1516,14 @@ BacktestMetrics runConfidenceBacktest(
                     confidenceThreshold
                 );
 
-            rawConfidence30 =
-                confidence30.confidence30.confidence;
-
-            calibratedConfidence30 =
+            calibrated30 =
                 lookupCalibratedConfidence(
                     calibration30,
-                    rawConfidence30
+                    confidence30.confidence30.confidence
                 );
         }
 
-        /*
-            ========================================================
-            PREDICTION AGREEMENT
-            ========================================================
-
-            Require at least 3 of the 4 horizons to agree before
-            accepting a calibrated signal.
-
-            0.75 is deliberately used as the first, non-tuned
-            ensemble agreement threshold because with four horizons
-            it means exactly 3/4 directional agreement.
-        */
-        constexpr double MIN_PREDICTION_AGREEMENT = 0.75;
-
-        const double predictionAgreement =
+        const double agreement =
             calculatePredictionAgreement(
                 valid5,
                 valid5 &&
@@ -1686,362 +1542,176 @@ BacktestMetrics runConfidenceBacktest(
                     confidence30.confidence30.predictedPositive
             );
 
-        /*
-            calibrated confidence remains the first gate.
+        constexpr double MIN_AGREEMENT = 0.75;
 
-            prediction agreement is the second gate.
+        const bool signal5 =
+            valid5 &&
+            calibrated5 >= confidenceThreshold &&
+            agreement >= MIN_AGREEMENT;
 
-            Both conditions must be satisfied for a signal.
-        */
+        const bool signal10 =
+            valid10 &&
+            calibrated10 >= confidenceThreshold &&
+            agreement >= MIN_AGREEMENT;
+
+        const bool signal15 =
+            valid15 &&
+            calibrated15 >= confidenceThreshold &&
+            agreement >= MIN_AGREEMENT;
+
+        const bool signal30 =
+            valid30 &&
+            calibrated30 >= confidenceThreshold &&
+            agreement >= MIN_AGREEMENT;
+
         if (valid5)
         {
-            confidence5.confidence5.signal =
-                calibratedConfidence5 >=
-                    confidenceThreshold &&
-                predictionAgreement >=
-                    MIN_PREDICTION_AGREEMENT;
+            ++state5.validSamples;
+            state5.error +=
+                std::abs(
+                    prediction5 -
+                    actual5
+                );
+
+            if (actual5 > 0.0)
+            {
+                ++state5.actualPositive;
+            }
+
+            if (signal5)
+            {
+                const bool positive =
+                    confidence5
+                        .confidence5
+                        .predictedPositive;
+
+                const double tradeReturn =
+                    calculateDirectionalTradeReturn(
+                        prices,
+                        currentPriceIndex,
+                        5,
+                        positive
+                    );
+
+                updateSignalStatistics(
+                    state5,
+                    actual5,
+                    tradeReturn
+                );
+            }
         }
 
         if (valid10)
         {
-            confidence10.confidence10.signal =
-                calibratedConfidence10 >=
-                    confidenceThreshold &&
-                predictionAgreement >=
-                    MIN_PREDICTION_AGREEMENT;
+            ++state10.validSamples;
+            state10.error +=
+                std::abs(
+                    prediction10 -
+                    actual10
+                );
+
+            if (actual10 > 0.0)
+            {
+                ++state10.actualPositive;
+            }
+
+            if (signal10)
+            {
+                const bool positive =
+                    confidence10
+                        .confidence10
+                        .predictedPositive;
+
+                const double tradeReturn =
+                    calculateDirectionalTradeReturn(
+                        prices,
+                        currentPriceIndex,
+                        10,
+                        positive
+                    );
+
+                updateSignalStatistics(
+                    state10,
+                    actual10,
+                    tradeReturn
+                );
+            }
         }
 
         if (valid15)
         {
-            confidence15.confidence15.signal =
-                calibratedConfidence15 >=
-                    confidenceThreshold &&
-                predictionAgreement >=
-                    MIN_PREDICTION_AGREEMENT;
+            ++state15.validSamples;
+            state15.error +=
+                std::abs(
+                    prediction15 -
+                    actual15
+                );
+
+            if (actual15 > 0.0)
+            {
+                ++state15.actualPositive;
+            }
+
+            if (signal15)
+            {
+                const bool positive =
+                    confidence15
+                        .confidence15
+                        .predictedPositive;
+
+                const double tradeReturn =
+                    calculateDirectionalTradeReturn(
+                        prices,
+                        currentPriceIndex,
+                        15,
+                        positive
+                    );
+
+                updateSignalStatistics(
+                    state15,
+                    actual15,
+                    tradeReturn
+                );
+            }
         }
 
         if (valid30)
         {
-            confidence30.confidence30.signal =
-                calibratedConfidence30 >=
-                    confidenceThreshold &&
-                predictionAgreement >=
-                    MIN_PREDICTION_AGREEMENT;
-        }
-
-        /*
-        ========================================================
-        +5 SIGNAL
-        ========================================================
-        */
-        if (valid5 &&
-            confidence5.confidence5.signal)
-        {
-            ++signals5;
-
-            const bool predictedPositive =
-                confidence5
-                    .confidence5
-                    .predictedPositive;
-
-            const double tradeReturn =
-                calculateDirectionalTradeReturn(
-                    prices,
-                    currentPriceIndex,
-                    5,
-                    predictedPositive
+            ++state30.validSamples;
+            state30.error +=
+                std::abs(
+                    prediction30 -
+                    actual30
                 );
 
-            totalPnL5 += tradeReturn;
-
-            if (tradeReturn > 0.0)
+            if (actual30 > 0.0)
             {
-                ++correctSignals5;
-                grossProfit5 += tradeReturn;
-            }
-            else if (tradeReturn < 0.0)
-            {
-                grossLoss5 +=
-                    std::abs(tradeReturn);
+                ++state30.actualPositive;
             }
 
-            returnWhenSignaled5 +=
-                actual5;
-        }
+            if (signal30)
+            {
+                const bool positive =
+                    confidence30
+                        .confidence30
+                        .predictedPositive;
 
-        /*
-        ========================================================
-        +10 SIGNAL
-        ========================================================
-        */
-        if (valid10 &&
-            confidence10.confidence10.signal)
-        {
-            ++signals10;
+                const double tradeReturn =
+                    calculateDirectionalTradeReturn(
+                        prices,
+                        currentPriceIndex,
+                        30,
+                        positive
+                    );
 
-            const bool predictedPositive =
-                confidence10
-                    .confidence10
-                    .predictedPositive;
-
-            const double tradeReturn =
-                calculateDirectionalTradeReturn(
-                    prices,
-                    currentPriceIndex,
-                    10,
-                    predictedPositive
+                updateSignalStatistics(
+                    state30,
+                    actual30,
+                    tradeReturn
                 );
-
-            totalPnL10 += tradeReturn;
-
-            if (tradeReturn > 0.0)
-            {
-                ++correctSignals10;
-                grossProfit10 += tradeReturn;
             }
-            else if (tradeReturn < 0.0)
-            {
-                grossLoss10 +=
-                    std::abs(tradeReturn);
-            }
-
-            returnWhenSignaled10 +=
-                actual10;
         }
 
-        /*
-        ========================================================
-        +15 SIGNAL
-        ========================================================
-        */
-        if (valid15 &&
-            confidence15.confidence15.signal)
-        {
-            ++signals15;
-
-            const bool predictedPositive =
-                confidence15
-                    .confidence15
-                    .predictedPositive;
-
-            const double tradeReturn =
-                calculateDirectionalTradeReturn(
-                    prices,
-                    currentPriceIndex,
-                    15,
-                    predictedPositive
-                );
-
-            totalPnL15 += tradeReturn;
-
-            if (tradeReturn > 0.0)
-            {
-                ++correctSignals15;
-                grossProfit15 += tradeReturn;
-            }
-            else if (tradeReturn < 0.0)
-            {
-                grossLoss15 +=
-                    std::abs(tradeReturn);
-            }
-
-            returnWhenSignaled15 +=
-                actual15;
-        }
-
-        /*
-        ========================================================
-        +30 SIGNAL
-        ========================================================
-        */
-        if (valid30 &&
-            confidence30.confidence30.signal)
-        {
-            ++signals30;
-
-            const bool predictedPositive =
-                confidence30
-                    .confidence30
-                    .predictedPositive;
-
-            const double tradeReturn =
-                calculateDirectionalTradeReturn(
-                    prices,
-                    currentPriceIndex,
-                    30,
-                    predictedPositive
-                );
-
-            totalPnL30 += tradeReturn;
-
-            if (tradeReturn > 0.0)
-            {
-                ++correctSignals30;
-                grossProfit30 += tradeReturn;
-            }
-            else if (tradeReturn < 0.0)
-            {
-                grossLoss30 +=
-                    std::abs(tradeReturn);
-            }
-
-            returnWhenSignaled30 +=
-                actual30;
-        }
-
-        /*
-        ========================================================
-        MAJORITY BASELINE
-        ========================================================
-        */
-
-        majorityPositive5 = 0;
-        majorityNegative5 = 0;
-
-        majorityPositive10 = 0;
-        majorityNegative10 = 0;
-
-        majorityPositive15 = 0;
-        majorityNegative15 = 0;
-
-        majorityPositive30 = 0;
-        majorityNegative30 = 0;
-
-        for (std::size_t j = 0;
-             j < currentIndex;
-             ++j)
-        {
-            const std::size_t historicalEnd =
-                j + windowSize - 1;
-
-            /*
-                Complete future must be known before
-                the current query begins.
-            */
-            if (historicalEnd + 30 >=
-                currentIndex)
-            {
-                continue;
-            }
-
-            const double r5 =
-                calculateReturn(
-                    prices,
-                    historicalEnd,
-                    5
-                );
-
-            const double r10 =
-                calculateReturn(
-                    prices,
-                    historicalEnd,
-                    10
-                );
-
-            const double r15 =
-                calculateReturn(
-                    prices,
-                    historicalEnd,
-                    15
-                );
-
-            const double r30 =
-                calculateReturn(
-                    prices,
-                    historicalEnd,
-                    30
-                );
-
-            if (r5 > 0.0)
-                ++majorityPositive5;
-            else if (r5 < 0.0)
-                ++majorityNegative5;
-
-            if (r10 > 0.0)
-                ++majorityPositive10;
-            else if (r10 < 0.0)
-                ++majorityNegative10;
-
-            if (r15 > 0.0)
-                ++majorityPositive15;
-            else if (r15 < 0.0)
-                ++majorityNegative15;
-
-            if (r30 > 0.0)
-                ++majorityPositive30;
-            else if (r30 < 0.0)
-                ++majorityNegative30;
-        }
-
-        const bool majorityPrediction5 =
-            majorityPositive5 >=
-            majorityNegative5;
-
-        const bool majorityPrediction10 =
-            majorityPositive10 >=
-            majorityNegative10;
-
-        const bool majorityPrediction15 =
-            majorityPositive15 >=
-            majorityNegative15;
-
-        const bool majorityPrediction30 =
-            majorityPositive30 >=
-            majorityNegative30;
-
-        if (valid5 &&
-            (
-                (majorityPrediction5 &&
-                 actual5 > 0.0)
-                ||
-                (!majorityPrediction5 &&
-                 actual5 < 0.0)
-            ))
-        {
-            ++majorityCorrect5;
-        }
-
-        if (valid10 &&
-            (
-                (majorityPrediction10 &&
-                 actual10 > 0.0)
-                ||
-                (!majorityPrediction10 &&
-                 actual10 < 0.0)
-            ))
-        {
-            ++majorityCorrect10;
-        }
-
-        if (valid15 &&
-            (
-                (majorityPrediction15 &&
-                 actual15 > 0.0)
-                ||
-                (!majorityPrediction15 &&
-                 actual15 < 0.0)
-            ))
-        {
-            ++majorityCorrect15;
-        }
-
-        if (valid30 &&
-            (
-                (majorityPrediction30 &&
-                 actual30 > 0.0)
-                ||
-                (!majorityPrediction30 &&
-                 actual30 < 0.0)
-            ))
-        {
-            ++majorityCorrect30;
-        }
-
-        /*
-        ========================================================
-        NAIVE MOMENTUM
-        ========================================================
-        */
         const double trailingReturn =
             calculateTrailingReturn(
                 prices,
@@ -2052,190 +1722,132 @@ BacktestMetrics runConfidenceBacktest(
         const bool momentumPositive =
             trailingReturn >= 0.0;
 
-        if (
-            valid5 &&
-            (
+        const MajorityCounts majority5 =
+            calculateMajorityCounts(
+                prices,
+                currentIndex,
+                windowSize,
+                5
+            );
+
+        const MajorityCounts majority10 =
+            calculateMajorityCounts(
+                prices,
+                currentIndex,
+                windowSize,
+                10
+            );
+
+        const MajorityCounts majority15 =
+            calculateMajorityCounts(
+                prices,
+                currentIndex,
+                windowSize,
+                15
+            );
+
+        const MajorityCounts majority30 =
+            calculateMajorityCounts(
+                prices,
+                currentIndex,
+                windowSize,
+                30
+            );
+
+        if (valid5)
+        {
+            if (
                 (momentumPositive &&
-                 actual5 > 0.0)
-                ||
+                 actual5 > 0.0) ||
                 (!momentumPositive &&
                  actual5 < 0.0)
             )
-        )
-        {
-            ++naiveCorrect5;
+            {
+                ++state5.naiveCorrect;
+            }
+
+            if (
+                (majorityPrediction(majority5) &&
+                 actual5 > 0.0) ||
+                (!majorityPrediction(majority5) &&
+                 actual5 < 0.0)
+            )
+            {
+                ++state5.majorityCorrect;
+            }
         }
 
-        if (
-            valid10 &&
-            (
+        if (valid10)
+        {
+            if (
                 (momentumPositive &&
-                 actual10 > 0.0)
-                ||
+                 actual10 > 0.0) ||
                 (!momentumPositive &&
                  actual10 < 0.0)
             )
-        )
-        {
-            ++naiveCorrect10;
+            {
+                ++state10.naiveCorrect;
+            }
+
+            if (
+                (majorityPrediction(majority10) &&
+                 actual10 > 0.0) ||
+                (!majorityPrediction(majority10) &&
+                 actual10 < 0.0)
+            )
+            {
+                ++state10.majorityCorrect;
+            }
         }
 
-        if (
-            valid15 &&
-            (
+        if (valid15)
+        {
+            if (
                 (momentumPositive &&
-                 actual15 > 0.0)
-                ||
+                 actual15 > 0.0) ||
                 (!momentumPositive &&
                  actual15 < 0.0)
             )
-        )
-        {
-            ++naiveCorrect15;
+            {
+                ++state15.naiveCorrect;
+            }
+
+            if (
+                (majorityPrediction(majority15) &&
+                 actual15 > 0.0) ||
+                (!majorityPrediction(majority15) &&
+                 actual15 < 0.0)
+            )
+            {
+                ++state15.majorityCorrect;
+            }
         }
 
-        if (
-            valid30 &&
-            (
+        if (valid30)
+        {
+            if (
                 (momentumPositive &&
-                 actual30 > 0.0)
-                ||
+                 actual30 > 0.0) ||
                 (!momentumPositive &&
                  actual30 < 0.0)
             )
-        )
-        {
-            ++naiveCorrect30;
-        }
+            {
+                ++state30.naiveCorrect;
+            }
 
-        if (actual5 > 0.0)
-            ++actualPositive5;
-
-        if (actual10 > 0.0)
-            ++actualPositive10;
-
-        if (actual15 > 0.0)
-            ++actualPositive15;
-
-        if (actual30 > 0.0)
-            ++actualPositive30;
-
-        /*
-        ========================================================
-        EQUITY / DRAWDOWN
-        ========================================================
-        */
-        if (valid5 &&
-            confidence5.confidence5.signal)
-        {
-            equity5 +=
-                calculateDirectionalTradeReturn(
-                    prices,
-                    currentPriceIndex,
-                    5,
-                    confidence5
-                        .confidence5
-                        .predictedPositive
-                );
-
-            peakEquity5 =
-                std::max(
-                    peakEquity5,
-                    equity5
-                );
-
-            maxDrawdown5 =
-                std::max(
-                    maxDrawdown5,
-                    peakEquity5 - equity5
-                );
-        }
-
-        if (valid10 &&
-            confidence10.confidence10.signal)
-        {
-            equity10 +=
-                calculateDirectionalTradeReturn(
-                    prices,
-                    currentPriceIndex,
-                    10,
-                    confidence10
-                        .confidence10
-                        .predictedPositive
-                );
-
-            peakEquity10 =
-                std::max(
-                    peakEquity10,
-                    equity10
-                );
-
-            maxDrawdown10 =
-                std::max(
-                    maxDrawdown10,
-                    peakEquity10 - equity10
-                );
-        }
-
-        if (valid15 &&
-            confidence15.confidence15.signal)
-        {
-            equity15 +=
-                calculateDirectionalTradeReturn(
-                    prices,
-                    currentPriceIndex,
-                    15,
-                    confidence15
-                        .confidence15
-                        .predictedPositive
-                );
-
-            peakEquity15 =
-                std::max(
-                    peakEquity15,
-                    equity15
-                );
-
-            maxDrawdown15 =
-                std::max(
-                    maxDrawdown15,
-                    peakEquity15 - equity15
-                );
-        }
-
-        if (valid30 &&
-            confidence30.confidence30.signal)
-        {
-            equity30 +=
-                calculateDirectionalTradeReturn(
-                    prices,
-                    currentPriceIndex,
-                    30,
-                    confidence30
-                        .confidence30
-                        .predictedPositive
-                );
-
-            peakEquity30 =
-                std::max(
-                    peakEquity30,
-                    equity30
-                );
-
-            maxDrawdown30 =
-                std::max(
-                    maxDrawdown30,
-                    peakEquity30 - equity30
-                );
+            if (
+                (majorityPrediction(majority30) &&
+                 actual30 > 0.0) ||
+                (!majorityPrediction(majority30) &&
+                 actual30 < 0.0)
+            )
+            {
+                ++state30.majorityCorrect;
+            }
         }
 
         ++metrics.samples;
 
-        /*
-        ========================================================
-        FIRST FIVE SAMPLES
-        ========================================================
-        */
         if (metrics.samples <= 5)
         {
             std::cout
@@ -2260,17 +1872,15 @@ BacktestMetrics runConfidenceBacktest(
                     << prediction5
                     << "% | Actual: "
                     << actual5
-                    << "% | Confidence: "
-                    << rawConfidence5 * 100.0
-                    << "% -> Calibrated: "
-                    << calibratedConfidence5 * 100.0
+                    << "% | Raw confidence: "
+                    << confidence5.confidence5.confidence * 100.0
+                    << "% | Calibrated: "
+                    << calibrated5 * 100.0
                     << "% | "
                     << (
-                        confidence5
-                            .confidence5
-                            .signal
-                        ? "SIGNAL"
-                        : "NO SIGNAL"
+                        signal5
+                            ? "SIGNAL"
+                            : "NO SIGNAL"
                     )
                     << "\n";
             }
@@ -2282,17 +1892,15 @@ BacktestMetrics runConfidenceBacktest(
                     << prediction10
                     << "% | Actual: "
                     << actual10
-                    << "% | Confidence: "
-                    << rawConfidence10 * 100.0
-                    << "% -> Calibrated: "
-                    << calibratedConfidence10 * 100.0
+                    << "% | Raw confidence: "
+                    << confidence10.confidence10.confidence * 100.0
+                    << "% | Calibrated: "
+                    << calibrated10 * 100.0
                     << "% | "
                     << (
-                        confidence10
-                            .confidence10
-                            .signal
-                        ? "SIGNAL"
-                        : "NO SIGNAL"
+                        signal10
+                            ? "SIGNAL"
+                            : "NO SIGNAL"
                     )
                     << "\n";
             }
@@ -2304,17 +1912,15 @@ BacktestMetrics runConfidenceBacktest(
                     << prediction15
                     << "% | Actual: "
                     << actual15
-                    << "% | Confidence: "
-                    << rawConfidence15 * 100.0
-                    << "% -> Calibrated: "
-                    << calibratedConfidence15 * 100.0
+                    << "% | Raw confidence: "
+                    << confidence15.confidence15.confidence * 100.0
+                    << "% | Calibrated: "
+                    << calibrated15 * 100.0
                     << "% | "
                     << (
-                        confidence15
-                            .confidence15
-                            .signal
-                        ? "SIGNAL"
-                        : "NO SIGNAL"
+                        signal15
+                            ? "SIGNAL"
+                            : "NO SIGNAL"
                     )
                     << "\n";
             }
@@ -2326,25 +1932,23 @@ BacktestMetrics runConfidenceBacktest(
                     << prediction30
                     << "% | Actual: "
                     << actual30
-                    << "% | Confidence: "
-                    << rawConfidence30 * 100.0
-                    << "% -> Calibrated: "
-                    << calibratedConfidence30 * 100.0
+                    << "% | Raw confidence: "
+                    << confidence30.confidence30.confidence * 100.0
+                    << "% | Calibrated: "
+                    << calibrated30 * 100.0
                     << "% | "
                     << (
-                        confidence30
-                            .confidence30
-                            .signal
-                        ? "SIGNAL"
-                        : "NO SIGNAL"
+                        signal30
+                            ? "SIGNAL"
+                            : "NO SIGNAL"
                     )
                     << "\n";
             }
-            
+
             std::cout
                 << "Prediction agreement: "
-                << predictionAgreement * 100.0
-                << "% (minimum 75.00%)\n";
+                << agreement * 100.0
+                << "%\n";
         }
     }
 
@@ -2353,428 +1957,313 @@ BacktestMetrics runConfidenceBacktest(
         return metrics;
     }
 
-    /*
-    ========================================================
-    COVERAGE
-    ========================================================
-    */
+    metrics.signals5 =
+        state5.signals;
 
-    metrics.signals5 = signals5;
-    metrics.signals10 = signals10;
-    metrics.signals15 = signals15;
-    metrics.signals30 = signals30;
+    metrics.signals10 =
+        state10.signals;
+
+    metrics.signals15 =
+        state15.signals;
+
+    metrics.signals30 =
+        state30.signals;
+
+    metrics.mae5 =
+        state5.validSamples > 0
+            ? state5.error /
+              state5.validSamples
+            : 0.0;
+
+    metrics.mae10 =
+        state10.validSamples > 0
+            ? state10.error /
+              state10.validSamples
+            : 0.0;
+
+    metrics.mae15 =
+        state15.validSamples > 0
+            ? state15.error /
+              state15.validSamples
+            : 0.0;
+
+    metrics.mae30 =
+        state30.validSamples > 0
+            ? state30.error /
+              state30.validSamples
+            : 0.0;
 
     metrics.coverage5 =
-        static_cast<double>(signals5) /
-        metrics.samples * 100.0;
+        static_cast<double>(
+            state5.signals
+        ) /
+        static_cast<double>(
+            state5.validSamples
+        ) * 100.0;
 
     metrics.coverage10 =
-        static_cast<double>(signals10) /
-        metrics.samples * 100.0;
+        static_cast<double>(
+            state10.signals
+        ) /
+        static_cast<double>(
+            state10.validSamples
+        ) * 100.0;
 
     metrics.coverage15 =
-        static_cast<double>(signals15) /
-        metrics.samples * 100.0;
+        static_cast<double>(
+            state15.signals
+        ) /
+        static_cast<double>(
+            state15.validSamples
+        ) * 100.0;
 
     metrics.coverage30 =
-        static_cast<double>(signals30) /
-        metrics.samples * 100.0;
+        static_cast<double>(
+            state30.signals
+        ) /
+        static_cast<double>(
+            state30.validSamples
+        ) * 100.0;
 
-    /*
-    ========================================================
-    SIGNAL ACCURACY
-    ========================================================
-    */
-
-    if (signals5 > 0)
+    if (state5.signals > 0)
     {
         metrics.signalAccuracy5 =
             static_cast<double>(
-                correctSignals5
+                state5.correctSignals
             ) /
-            signals5 * 100.0;
+            state5.signals *
+            100.0;
 
         metrics.averageReturnWhenSignaled5 =
-            returnWhenSignaled5 /
-            static_cast<double>(signals5);
+            state5.actualReturnSum /
+            state5.signals;
+
+        metrics.averageTradeReturn5 =
+            state5.totalPnL /
+            state5.signals;
+
+        metrics.winRate5 =
+            metrics.signalAccuracy5;
+
+        metrics.profitFactor5 =
+            state5.grossLoss > 0.0
+                ? state5.grossProfit /
+                  state5.grossLoss
+                : 0.0;
     }
 
-    if (signals10 > 0)
+    if (state10.signals > 0)
     {
         metrics.signalAccuracy10 =
             static_cast<double>(
-                correctSignals10
+                state10.correctSignals
             ) /
-            signals10 * 100.0;
+            state10.signals *
+            100.0;
 
         metrics.averageReturnWhenSignaled10 =
-            returnWhenSignaled10 /
-            static_cast<double>(signals10);
+            state10.actualReturnSum /
+            state10.signals;
+
+        metrics.averageTradeReturn10 =
+            state10.totalPnL /
+            state10.signals;
+
+        metrics.winRate10 =
+            metrics.signalAccuracy10;
+
+        metrics.profitFactor10 =
+            state10.grossLoss > 0.0
+                ? state10.grossProfit /
+                  state10.grossLoss
+                : 0.0;
     }
 
-    if (signals15 > 0)
+    if (state15.signals > 0)
     {
         metrics.signalAccuracy15 =
             static_cast<double>(
-                correctSignals15
+                state15.correctSignals
             ) /
-            signals15 * 100.0;
+            state15.signals *
+            100.0;
 
         metrics.averageReturnWhenSignaled15 =
-            returnWhenSignaled15 /
-            static_cast<double>(signals15);
+            state15.actualReturnSum /
+            state15.signals;
+
+        metrics.averageTradeReturn15 =
+            state15.totalPnL /
+            state15.signals;
+
+        metrics.winRate15 =
+            metrics.signalAccuracy15;
+
+        metrics.profitFactor15 =
+            state15.grossLoss > 0.0
+                ? state15.grossProfit /
+                  state15.grossLoss
+                : 0.0;
     }
 
-    if (signals30 > 0)
+    if (state30.signals > 0)
     {
         metrics.signalAccuracy30 =
             static_cast<double>(
-                correctSignals30
+                state30.correctSignals
             ) /
-            signals30 * 100.0;
+            state30.signals *
+            100.0;
 
         metrics.averageReturnWhenSignaled30 =
-            returnWhenSignaled30 /
-            static_cast<double>(signals30);
-    }
+            state30.actualReturnSum /
+            state30.signals;
 
-    /*
-    ========================================================
-    P&L
-    ========================================================
-    */
-
-    metrics.totalReturn5 =
-        totalPnL5;
-
-    metrics.totalReturn10 =
-        totalPnL10;
-
-    metrics.totalReturn15 =
-        totalPnL15;
-
-    metrics.totalReturn30 =
-        totalPnL30;
-
-    if (signals5 > 0)
-    {
-        metrics.averageTradeReturn5 =
-            totalPnL5 /
-            static_cast<double>(signals5);
-
-        metrics.winRate5 =
-            static_cast<double>(
-                correctSignals5
-            ) /
-            signals5 * 100.0;
-    }
-
-    if (signals10 > 0)
-    {
-        metrics.averageTradeReturn10 =
-            totalPnL10 /
-            static_cast<double>(signals10);
-
-        metrics.winRate10 =
-            static_cast<double>(
-                correctSignals10
-            ) /
-            signals10 * 100.0;
-    }
-
-    if (signals15 > 0)
-    {
-        metrics.averageTradeReturn15 =
-            totalPnL15 /
-            static_cast<double>(signals15);
-
-        metrics.winRate15 =
-            static_cast<double>(
-                correctSignals15
-            ) /
-            signals15 * 100.0;
-    }
-
-    if (signals30 > 0)
-    {
         metrics.averageTradeReturn30 =
-            totalPnL30 /
-            static_cast<double>(signals30);
+            state30.totalPnL /
+            state30.signals;
 
         metrics.winRate30 =
-            static_cast<double>(
-                correctSignals30
-            ) /
-            signals30 * 100.0;
+            metrics.signalAccuracy30;
+
+        metrics.profitFactor30 =
+            state30.grossLoss > 0.0
+                ? state30.grossProfit /
+                  state30.grossLoss
+                : 0.0;
     }
 
-    /*
-    ========================================================
-    PROFIT FACTOR
-    ========================================================
-    */
+    metrics.totalReturn5 =
+        state5.totalPnL;
 
-    metrics.profitFactor5 =
-        grossLoss5 > 0.0
-            ? grossProfit5 / grossLoss5
-            : 0.0;
+    metrics.totalReturn10 =
+        state10.totalPnL;
 
-    metrics.profitFactor10 =
-        grossLoss10 > 0.0
-            ? grossProfit10 / grossLoss10
-            : 0.0;
+    metrics.totalReturn15 =
+        state15.totalPnL;
 
-    metrics.profitFactor15 =
-        grossLoss15 > 0.0
-            ? grossProfit15 / grossLoss15
-            : 0.0;
-
-    metrics.profitFactor30 =
-        grossLoss30 > 0.0
-            ? grossProfit30 / grossLoss30
-            : 0.0;
-
-    /*
-    ========================================================
-    MAX DRAWDOWN
-    ========================================================
-    */
+    metrics.totalReturn30 =
+        state30.totalPnL;
 
     metrics.maxDrawdown5 =
-        maxDrawdown5;
+        state5.maxDrawdown;
 
     metrics.maxDrawdown10 =
-        maxDrawdown10;
+        state10.maxDrawdown;
 
     metrics.maxDrawdown15 =
-        maxDrawdown15;
+        state15.maxDrawdown;
 
     metrics.maxDrawdown30 =
-        maxDrawdown30;
-
-    /*
-    ========================================================
-    BASE RATE
-    ========================================================
-    */
+        state30.maxDrawdown;
 
     metrics.baseRatePositive5 =
         static_cast<double>(
-            actualPositive5
+            state5.actualPositive
         ) /
-        metrics.samples * 100.0;
+        state5.validSamples *
+        100.0;
 
     metrics.baseRatePositive10 =
         static_cast<double>(
-            actualPositive10
+            state10.actualPositive
         ) /
-        metrics.samples * 100.0;
+        state10.validSamples *
+        100.0;
 
     metrics.baseRatePositive15 =
         static_cast<double>(
-            actualPositive15
+            state15.actualPositive
         ) /
-        metrics.samples * 100.0;
+        state15.validSamples *
+        100.0;
 
     metrics.baseRatePositive30 =
         static_cast<double>(
-            actualPositive30
+            state30.actualPositive
         ) /
-        metrics.samples * 100.0;
-
-    /*
-    ========================================================
-    NAIVE ACCURACY
-    ========================================================
-    */
+        state30.validSamples *
+        100.0;
 
     metrics.naiveAccuracy5 =
         static_cast<double>(
-            naiveCorrect5
+            state5.naiveCorrect
         ) /
-        metrics.samples * 100.0;
+        state5.validSamples *
+        100.0;
 
     metrics.naiveAccuracy10 =
         static_cast<double>(
-            naiveCorrect10
+            state10.naiveCorrect
         ) /
-        metrics.samples * 100.0;
+        state10.validSamples *
+        100.0;
 
     metrics.naiveAccuracy15 =
         static_cast<double>(
-            naiveCorrect15
+            state15.naiveCorrect
         ) /
-        metrics.samples * 100.0;
+        state15.validSamples *
+        100.0;
 
     metrics.naiveAccuracy30 =
         static_cast<double>(
-            naiveCorrect30
+            state30.naiveCorrect
         ) /
-        metrics.samples * 100.0;
-
-    /*
-    ========================================================
-    MAJORITY ACCURACY
-    ========================================================
-    */
+        state30.validSamples *
+        100.0;
 
     metrics.directionalAccuracy5 =
         static_cast<double>(
-            majorityCorrect5
+            state5.majorityCorrect
         ) /
-        metrics.samples * 100.0;
+        state5.validSamples *
+        100.0;
 
     metrics.directionalAccuracy10 =
         static_cast<double>(
-            majorityCorrect10
+            state10.majorityCorrect
         ) /
-        metrics.samples * 100.0;
+        state10.validSamples *
+        100.0;
 
     metrics.directionalAccuracy15 =
         static_cast<double>(
-            majorityCorrect15
+            state15.majorityCorrect
         ) /
-        metrics.samples * 100.0;
+        state15.validSamples *
+        100.0;
 
     metrics.directionalAccuracy30 =
         static_cast<double>(
-            majorityCorrect30
+            state30.majorityCorrect
         ) /
-        metrics.samples * 100.0;
-
-    /*
-    ========================================================
-    Z-SCORE
-    ========================================================
-    */
+        state30.validSamples *
+        100.0;
 
     metrics.zScore5 =
         calculateZScore(
             metrics.signalAccuracy5,
-            signals5
+            state5.signals
         );
 
     metrics.zScore10 =
         calculateZScore(
             metrics.signalAccuracy10,
-            signals10
+            state10.signals
         );
 
     metrics.zScore15 =
         calculateZScore(
             metrics.signalAccuracy15,
-            signals15
+            state15.signals
         );
 
     metrics.zScore30 =
         calculateZScore(
             metrics.signalAccuracy30,
-            signals30
+            state30.signals
         );
-
-    std::cout
-        << "\n============================================\n"
-        << "CONFIDENCE BACKTEST RESULTS\n"
-        << "============================================\n";
-
-    std::cout
-        << "Threshold : "
-        << confidenceThreshold * 100.0
-        << "%\n\n";
-
-    std::cout
-        << "## Horizon       Signals       Coverage"
-        << "       Accuracy       Avg Return"
-        << "       Total P&L       Profit Factor"
-        << "       Max Drawdown\n";
-
-    std::cout
-        << "+5 days       "
-        << signals5
-        << "             "
-        << metrics.coverage5
-        << "%          "
-        << metrics.signalAccuracy5
-        << "%          "
-        << metrics.averageTradeReturn5
-        << "%          "
-        << metrics.totalReturn5
-        << "%          "
-        << metrics.profitFactor5
-        << "          "
-        << metrics.maxDrawdown5
-        << "%\n";
-
-    std::cout
-        << "+10 days      "
-        << signals10
-        << "             "
-        << metrics.coverage10
-        << "%          "
-        << metrics.signalAccuracy10
-        << "%          "
-        << metrics.averageTradeReturn10
-        << "%          "
-        << metrics.totalReturn10
-        << "%          "
-        << metrics.profitFactor10
-        << "          "
-        << metrics.maxDrawdown10
-        << "%\n";
-
-    std::cout
-        << "+15 days      "
-        << signals15
-        << "             "
-        << metrics.coverage15
-        << "%          "
-        << metrics.signalAccuracy15
-        << "%          "
-        << metrics.averageTradeReturn15
-        << "%          "
-        << metrics.totalReturn15
-        << "%          "
-        << metrics.profitFactor15
-        << "          "
-        << metrics.maxDrawdown15
-        << "%\n";
-
-    std::cout
-        << "+30 days      "
-        << signals30
-        << "             "
-        << metrics.coverage30
-        << "%          "
-        << metrics.signalAccuracy30
-        << "%          "
-        << metrics.averageTradeReturn30
-        << "%          "
-        << metrics.totalReturn30
-        << "%          "
-        << metrics.profitFactor30
-        << "          "
-        << metrics.maxDrawdown30
-        << "%\n";
-
-    std::cout
-        << "\nZ-score +5  : "
-        << metrics.zScore5
-        << "\n";
-
-    std::cout
-        << "Z-score +10 : "
-        << metrics.zScore10
-        << "\n";
-
-    std::cout
-        << "Z-score +15 : "
-        << metrics.zScore15
-        << "\n";
-
-    std::cout
-        << "Z-score +30 : "
-        << metrics.zScore30
-        << "\n";
 
     return metrics;
 }
