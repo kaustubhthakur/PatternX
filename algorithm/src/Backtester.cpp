@@ -8,6 +8,7 @@
 #include "../include/Calibration.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <complex>
 #include <cstddef>

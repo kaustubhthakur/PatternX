@@ -79,7 +79,42 @@ struct BacktestMetrics
     double maxDrawdown10 = 0.0;
     double maxDrawdown15 = 0.0;
     double maxDrawdown30 = 0.0;
+
+    /*
+        ========================================================
+        CALIBRATION DIAGNOSTICS
+        ========================================================
+
+        Brier score:
+            Mean squared error between confidence and correctness.
+
+        ECE:
+            Expected Calibration Error.
+
+        Lower is better for both.
+    */
+
+    double rawBrierScore5 = 0.0;
+    double rawBrierScore10 = 0.0;
+    double rawBrierScore15 = 0.0;
+    double rawBrierScore30 = 0.0;
+
+    double calibratedBrierScore5 = 0.0;
+    double calibratedBrierScore10 = 0.0;
+    double calibratedBrierScore15 = 0.0;
+    double calibratedBrierScore30 = 0.0;
+
+    double rawECE5 = 0.0;
+    double rawECE10 = 0.0;
+    double rawECE15 = 0.0;
+    double rawECE30 = 0.0;
+
+    double calibratedECE5 = 0.0;
+    double calibratedECE10 = 0.0;
+    double calibratedECE15 = 0.0;
+    double calibratedECE30 = 0.0;
 };
+
 
 BacktestMetrics runBacktest(
     const std::vector<double>& prices,
@@ -87,6 +122,7 @@ BacktestMetrics runBacktest(
     std::size_t topK,
     std::size_t step
 );
+
 
 BacktestMetrics runConfidenceBacktest(
     const std::vector<double>& prices,
