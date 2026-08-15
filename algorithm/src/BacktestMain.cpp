@@ -6,6 +6,116 @@
 #include "../include/Backtester.hpp"
 
 
+void printHorizonResults(
+    const char* horizon,
+    std::size_t signals,
+    double coverage,
+    double accuracy,
+    double avgReturn,
+    double totalReturn,
+    double profitFactor,
+    double maxDrawdown,
+    double sharpe,
+    double sortino,
+    double calmar,
+    std::size_t wins,
+    std::size_t losses,
+    double bestTrade,
+    double worstTrade,
+    double averageWin,
+    double averageLoss
+)
+{
+    std::cout
+        << "\n"
+        << horizon
+        << "\n";
+
+    std::cout
+        << "--------------------------------------------\n";
+
+    std::cout
+        << "Signals              : "
+        << signals
+        << "\n";
+
+    std::cout
+        << "Coverage             : "
+        << coverage
+        << "%\n";
+
+    std::cout
+        << "Signal Accuracy      : "
+        << accuracy
+        << "%\n";
+
+    std::cout
+        << "Average Trade Return : "
+        << avgReturn
+        << "%\n";
+
+    std::cout
+        << "Total Return         : "
+        << totalReturn
+        << "%\n";
+
+    std::cout
+        << "Wins                 : "
+        << wins
+        << "\n";
+
+    std::cout
+        << "Losses               : "
+        << losses
+        << "\n";
+
+    std::cout
+        << "Average Win          : "
+        << averageWin
+        << "%\n";
+
+    std::cout
+        << "Average Loss         : "
+        << averageLoss
+        << "%\n";
+
+    std::cout
+        << "Best Trade           : "
+        << bestTrade
+        << "%\n";
+
+    std::cout
+        << "Worst Trade          : "
+        << worstTrade
+        << "%\n";
+
+    std::cout
+        << "Profit Factor        : "
+        << profitFactor
+        << "\n";
+
+    std::cout
+        << "Max Drawdown         : "
+        << maxDrawdown
+        << "%\n";
+
+    std::cout
+        << "Sharpe               : "
+        << sharpe
+        << "\n";
+
+    std::cout
+        << "Sortino              : "
+        << sortino
+        << "\n";
+
+    std::cout
+        << "Calmar               : "
+        << calmar
+        << "\n";
+}
+
+
 void printConfidenceResults(
     const BacktestMetrics& metrics
 )
@@ -17,76 +127,144 @@ void printConfidenceResults(
         << "CONFIDENCE FILTER RESULTS\n";
 
     std::cout
-        << "============================================\n\n";
-
+        << "============================================\n";
 
     std::cout
-        << "Threshold : "
+        << "\nThreshold : "
         << metrics.confidenceThreshold * 100.0
-        << "%\n\n";
-
-
-    std::cout
-        << "Horizon       Signals       Coverage       "
-        << "Accuracy       Avg Return\n";
-
-    std::cout
-        << "------------------------------------------------------------\n";
-
-
-    std::cout
-        << "+5 days       "
-        << metrics.signals5
-        << "             "
-        << metrics.coverage5
-        << "%          "
-        << metrics.signalAccuracy5
-        << "%          "
-        << metrics.averageReturnWhenSignaled5
         << "%\n";
 
+    printHorizonResults(
+        "+5 DAYS",
+        metrics.signals5,
+        metrics.coverage5,
+        metrics.signalAccuracy5,
+        metrics.averageTradeReturn5,
+        metrics.totalReturn5,
+        metrics.profitFactor5,
+        metrics.maxDrawdown5,
+        metrics.sharpe5,
+        metrics.sortino5,
+        metrics.calmar5,
+        metrics.wins5,
+        metrics.losses5,
+        metrics.bestTrade5,
+        metrics.worstTrade5,
+        metrics.averageWin5,
+        metrics.averageLoss5
+    );
+
+    printHorizonResults(
+        "+10 DAYS",
+        metrics.signals10,
+        metrics.coverage10,
+        metrics.signalAccuracy10,
+        metrics.averageTradeReturn10,
+        metrics.totalReturn10,
+        metrics.profitFactor10,
+        metrics.maxDrawdown10,
+        metrics.sharpe10,
+        metrics.sortino10,
+        metrics.calmar10,
+        metrics.wins10,
+        metrics.losses10,
+        metrics.bestTrade10,
+        metrics.worstTrade10,
+        metrics.averageWin10,
+        metrics.averageLoss10
+    );
+
+    printHorizonResults(
+        "+15 DAYS",
+        metrics.signals15,
+        metrics.coverage15,
+        metrics.signalAccuracy15,
+        metrics.averageTradeReturn15,
+        metrics.totalReturn15,
+        metrics.profitFactor15,
+        metrics.maxDrawdown15,
+        metrics.sharpe15,
+        metrics.sortino15,
+        metrics.calmar15,
+        metrics.wins15,
+        metrics.losses15,
+        metrics.bestTrade15,
+        metrics.worstTrade15,
+        metrics.averageWin15,
+        metrics.averageLoss15
+    );
+
+    printHorizonResults(
+        "+30 DAYS",
+        metrics.signals30,
+        metrics.coverage30,
+        metrics.signalAccuracy30,
+        metrics.averageTradeReturn30,
+        metrics.totalReturn30,
+        metrics.profitFactor30,
+        metrics.maxDrawdown30,
+        metrics.sharpe30,
+        metrics.sortino30,
+        metrics.calmar30,
+        metrics.wins30,
+        metrics.losses30,
+        metrics.bestTrade30,
+        metrics.worstTrade30,
+        metrics.averageWin30,
+        metrics.averageLoss30
+    );
 
     std::cout
-        << "+10 days      "
-        << metrics.signals10
-        << "             "
-        << metrics.coverage10
-        << "%          "
-        << metrics.signalAccuracy10
-        << "%          "
-        << metrics.averageReturnWhenSignaled10
+        << "\n--------------------------------------------\n";
+
+    std::cout
+        << "BASELINES\n";
+
+    std::cout
+        << "--------------------------------------------\n";
+
+    std::cout
+        << "Momentum Accuracy +5  : "
+        << metrics.naiveAccuracy5
         << "%\n";
 
-
     std::cout
-        << "+15 days      "
-        << metrics.signals15
-        << "             "
-        << metrics.coverage15
-        << "%          "
-        << metrics.signalAccuracy15
-        << "%          "
-        << metrics.averageReturnWhenSignaled15
+        << "Momentum Accuracy +10 : "
+        << metrics.naiveAccuracy10
         << "%\n";
 
-
     std::cout
-        << "+30 days      "
-        << metrics.signals30
-        << "             "
-        << metrics.coverage30
-        << "%          "
-        << metrics.signalAccuracy30
-        << "%          "
-        << metrics.averageReturnWhenSignaled30
+        << "Momentum Accuracy +15 : "
+        << metrics.naiveAccuracy15
         << "%\n";
 
-
-    std::cout << "\n";
-
+    std::cout
+        << "Momentum Accuracy +30 : "
+        << metrics.naiveAccuracy30
+        << "%\n";
 
     std::cout
-        << "Z-score +5  : "
+        << "\nMajority Accuracy +5  : "
+        << metrics.directionalAccuracy5
+        << "%\n";
+
+    std::cout
+        << "Majority Accuracy +10 : "
+        << metrics.directionalAccuracy10
+        << "%\n";
+
+    std::cout
+        << "Majority Accuracy +15 : "
+        << metrics.directionalAccuracy15
+        << "%\n";
+
+    std::cout
+        << "Majority Accuracy +30 : "
+        << metrics.directionalAccuracy30
+        << "%\n";
+
+    std::cout
+        << "\nZ-score +5  : "
         << metrics.zScore5
         << "\n";
 
@@ -113,15 +291,11 @@ int main()
         << "============================================\n";
 
     std::cout
-        << "PATTERNX CONFIDENCE BACKTEST\n";
+        << "PATTERNX CONFIDENCE BACKTEST V2\n";
 
     std::cout
         << "============================================\n\n";
 
-
-    /*
-        Load all stock data.
-    */
 
     std::vector<PriceData> data =
         loadStockData(
@@ -132,12 +306,8 @@ int main()
     std::cout
         << "Total rows: "
         << data.size()
-        << "\n\n";
+        << "\n";
 
-
-    /*
-        Select TCS.
-    */
 
     std::vector<double> prices;
 
@@ -145,7 +315,9 @@ int main()
     {
         if (row.symbol == "TCS")
         {
-            prices.push_back(row.close);
+            prices.push_back(
+                row.close
+            );
         }
     }
 
@@ -156,16 +328,9 @@ int main()
         << "\n\n";
 
 
-    /*
-        Configuration.
-    */
-
     const std::size_t WINDOW_SIZE = 30;
-
     const std::size_t TOP_K = 10;
-
     const std::size_t STEP = 10;
-
     const double TRAIN_RATIO = 0.70;
 
 
@@ -190,15 +355,6 @@ int main()
         << "%\n";
 
 
-    /*
-        Test all thresholds.
-
-        DO NOT pick the best threshold yet.
-
-        We are measuring whether confidence actually
-        contains useful information.
-    */
-
     const std::vector<double> thresholds =
     {
         0.60,
@@ -213,20 +369,9 @@ int main()
         << std::setprecision(4);
 
 
-    for (const double threshold : thresholds)
+    for (const double threshold :
+         thresholds)
     {
-        std::cout
-            << "\n\n############################################\n";
-
-        std::cout
-            << "CONFIDENCE THRESHOLD: "
-            << threshold * 100.0
-            << "%\n";
-
-        std::cout
-            << "############################################\n";
-
-
         BacktestMetrics metrics =
             runConfidenceBacktest(
                 prices,
@@ -236,7 +381,6 @@ int main()
                 TRAIN_RATIO,
                 threshold
             );
-
 
         printConfidenceResults(
             metrics
@@ -248,7 +392,7 @@ int main()
         << "\n============================================\n";
 
     std::cout
-        << "CONFIDENCE BACKTEST COMPLETED\n";
+        << "PATTERNX BACKTEST V2 COMPLETED\n";
 
     std::cout
         << "============================================\n";

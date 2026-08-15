@@ -12,29 +12,48 @@
 #include <complex>
 #include <cstddef>
 #include <iostream>
+#include <limits>
+#include <numeric>
 #include <vector>
 
 namespace
 {
+
+constexpr double EPSILON = 1e-12;
 
 struct HorizonState
 {
     std::size_t signals = 0;
     std::size_t correctSignals = 0;
     std::size_t validSamples = 0;
+
     std::size_t actualPositive = 0;
+
     std::size_t naiveCorrect = 0;
     std::size_t majorityCorrect = 0;
 
+    std::size_t wins = 0;
+    std::size_t losses = 0;
+
     double error = 0.0;
+
     double actualReturnSum = 0.0;
     double totalPnL = 0.0;
+
     double grossProfit = 0.0;
     double grossLoss = 0.0;
+
+    double bestTrade = -std::numeric_limits<double>::infinity();
+    double worstTrade = std::numeric_limits<double>::infinity();
+
+    double winningReturnSum = 0.0;
+    double losingReturnSum = 0.0;
 
     double equity = 0.0;
     double peakEquity = 0.0;
     double maxDrawdown = 0.0;
+
+    std::vector<double> tradeReturns;
 };
 
 struct MajorityCounts
@@ -149,7 +168,8 @@ bool isCorrectDirection(
     double actual
 )
 {
-    if (prediction == 0.0 || actual == 0.0)
+    if (prediction == 0.0 ||
+        actual == 0.0)
     {
         return false;
     }
@@ -183,6 +203,11 @@ bool buildMatches(
 
     signatures.reserve(currentIndex + 1);
     windows.reserve(currentIndex + 1);
+
+    /*
+        Build signatures only from information available
+        at the current query time.
+    */
 
     for (std::size_t start = 0;
          start <= currentIndex;
@@ -218,6 +243,18 @@ bool buildMatches(
         return false;
     }
 
+    /*
+        IMPORTANT:
+
+        A historical pattern is valid only if BOTH:
+
+        1. its window finishes before the current query
+        2. its complete future horizon finishes before
+           the current query
+
+        This prevents look-ahead leakage.
+    */
+
     for (std::size_t start = 0;
          start < currentIndex;
          ++start)
@@ -227,6 +264,11 @@ bool buildMatches(
 
         const std::size_t futureIndex =
             historicalEnd + horizon;
+
+        if (historicalEnd >= currentIndex)
+        {
+            continue;
+        }
 
         if (futureIndex >= currentIndex)
         {
@@ -293,7 +335,8 @@ bool buildMatches(
 
     for (const auto& match : matches)
     {
-        if (match.windowIndex >= candidateIndices.size())
+        if (match.windowIndex >=
+            candidateIndices.size())
         {
             continue;
         }
@@ -449,7 +492,8 @@ std::vector<CalibrationPoint> collectCalibrationPoints(
     const std::size_t minimumQuery =
         windowSize + horizon;
 
-    for (std::size_t queryIndex = minimumQuery;
+    for (std::size_t queryIndex =
+             minimumQuery;
          queryIndex < trainingEnd;
          queryIndex += step)
     {
@@ -662,18 +706,46 @@ void updateSignalStatistics(
     state.totalPnL +=
         tradeReturn;
 
+    state.tradeReturns.push_back(
+        tradeReturn
+    );
+
+    state.bestTrade =
+        std::max(
+            state.bestTrade,
+            tradeReturn
+        );
+
+    state.worstTrade =
+        std::min(
+            state.worstTrade,
+            tradeReturn
+        );
+
     if (tradeReturn > 0.0)
     {
         ++state.correctSignals;
-        state.grossProfit += tradeReturn;
+        ++state.wins;
+
+        state.grossProfit +=
+            tradeReturn;
+
+        state.winningReturnSum +=
+            tradeReturn;
     }
     else if (tradeReturn < 0.0)
     {
+        ++state.losses;
+
         state.grossLoss +=
             std::abs(tradeReturn);
+
+        state.losingReturnSum +=
+            tradeReturn;
     }
 
-    state.equity += tradeReturn;
+    state.equity +=
+        tradeReturn;
 
     state.peakEquity =
         std::max(
@@ -687,6 +759,186 @@ void updateSignalStatistics(
             state.peakEquity -
             state.equity
         );
+}
+
+double calculateSharpeRatio(
+    const std::vector<double>& returns
+)
+{
+    if (returns.size() < 2)
+    {
+        return 0.0;
+    }
+
+    const double mean =
+        std::accumulate(
+            returns.begin(),
+            returns.end(),
+            0.0
+        ) /
+        static_cast<double>(
+            returns.size()
+        );
+
+    double variance = 0.0;
+
+    for (const double value : returns)
+    {
+        const double diff =
+            value - mean;
+
+        variance +=
+            diff * diff;
+    }
+
+    variance /=
+        static_cast<double>(
+            returns.size() - 1
+        );
+
+    const double standardDeviation =
+        std::sqrt(variance);
+
+    if (standardDeviation < EPSILON)
+    {
+        return 0.0;
+    }
+
+    return mean /
+           standardDeviation *
+           std::sqrt(
+               static_cast<double>(
+                   returns.size()
+               )
+           );
+}
+
+double calculateSortinoRatio(
+    const std::vector<double>& returns
+)
+{
+    if (returns.empty())
+    {
+        return 0.0;
+    }
+
+    const double mean =
+        std::accumulate(
+            returns.begin(),
+            returns.end(),
+            0.0
+        ) /
+        static_cast<double>(
+            returns.size()
+        );
+
+    double downsideSquared = 0.0;
+
+    for (const double value : returns)
+    {
+        if (value < 0.0)
+        {
+            downsideSquared +=
+                value * value;
+        }
+    }
+
+    const double downsideDeviation =
+        std::sqrt(
+            downsideSquared /
+            static_cast<double>(
+                returns.size()
+            )
+        );
+
+    if (downsideDeviation < EPSILON)
+    {
+        return 0.0;
+    }
+
+    return mean /
+           downsideDeviation *
+           std::sqrt(
+               static_cast<double>(
+                   returns.size()
+               )
+           );
+}
+
+double calculateCalmarRatio(
+    double totalReturn,
+    double maxDrawdown
+)
+{
+    if (maxDrawdown < EPSILON)
+    {
+        return 0.0;
+    }
+
+    return totalReturn /
+           maxDrawdown;
+}
+
+void assignAdvancedMetrics(
+    const HorizonState& state,
+    double& sharpe,
+    double& sortino,
+    double& calmar,
+    std::size_t& wins,
+    std::size_t& losses,
+    double& bestTrade,
+    double& worstTrade,
+    double& averageWin,
+    double& averageLoss
+)
+{
+    sharpe =
+        calculateSharpeRatio(
+            state.tradeReturns
+        );
+
+    sortino =
+        calculateSortinoRatio(
+            state.tradeReturns
+        );
+
+    calmar =
+        calculateCalmarRatio(
+            state.totalPnL,
+            state.maxDrawdown
+        );
+
+    wins =
+        state.wins;
+
+    losses =
+        state.losses;
+
+    bestTrade =
+        state.signals > 0
+            ? state.bestTrade
+            : 0.0;
+
+    worstTrade =
+        state.signals > 0
+            ? state.worstTrade
+            : 0.0;
+
+    averageWin =
+        state.wins > 0
+            ? state.winningReturnSum /
+              static_cast<double>(
+                  state.wins
+              )
+            : 0.0;
+
+    averageLoss =
+        state.losses > 0
+            ? state.losingReturnSum /
+              static_cast<double>(
+                  state.losses
+              )
+            : 0.0;
 }
 
 void updateBaselineStatistics(
@@ -722,107 +974,8 @@ void updateBaselineStatistics(
     }
 }
 
-void assignMetrics(
-    BacktestMetrics& metrics,
-    const HorizonState& state,
-    double& mae,
-    double& coverage,
-    double& signalAccuracy,
-    double& averageReturnWhenSignaled,
-    double& totalReturn,
-    double& averageTradeReturn,
-    double& winRate,
-    double& profitFactor,
-    double& maxDrawdown,
-    double& baseRate,
-    double& naiveAccuracy,
-    double& directionalAccuracy,
-    double& zScore
-)
-{
-    const std::size_t samples =
-        state.validSamples;
+} // namespace
 
-    if (samples > 0)
-    {
-        mae =
-            state.error /
-            static_cast<double>(samples);
-
-        baseRate =
-            static_cast<double>(
-                state.actualPositive
-            ) /
-            static_cast<double>(samples) *
-            100.0;
-
-        naiveAccuracy =
-            static_cast<double>(
-                state.naiveCorrect
-            ) /
-            static_cast<double>(samples) *
-            100.0;
-
-        directionalAccuracy =
-            static_cast<double>(
-                state.majorityCorrect
-            ) /
-            static_cast<double>(samples) *
-            100.0;
-    }
-
-    if (state.signals > 0)
-    {
-        coverage =
-            static_cast<double>(
-                state.signals
-            ) /
-            static_cast<double>(samples) *
-            100.0;
-
-        signalAccuracy =
-            static_cast<double>(
-                state.correctSignals
-            ) /
-            static_cast<double>(state.signals) *
-            100.0;
-
-        averageReturnWhenSignaled =
-            state.actualReturnSum /
-            static_cast<double>(state.signals);
-
-        averageTradeReturn =
-            state.totalPnL /
-            static_cast<double>(state.signals);
-
-        winRate =
-            static_cast<double>(
-                state.correctSignals
-            ) /
-            static_cast<double>(state.signals) *
-            100.0;
-
-        profitFactor =
-            state.grossLoss > 0.0
-                ? state.grossProfit /
-                  state.grossLoss
-                : 0.0;
-
-        zScore =
-            calculateZScore(
-                signalAccuracy,
-                state.signals
-            );
-    }
-
-    totalReturn =
-        state.totalPnL;
-
-    maxDrawdown =
-        state.maxDrawdown;
-}
-
-}
 
 BacktestMetrics runBacktest(
     const std::vector<double>& prices,
@@ -993,6 +1146,7 @@ BacktestMetrics runBacktest(
         if (valid5)
         {
             ++state5.validSamples;
+
             state5.error +=
                 std::abs(
                     prediction5 -
@@ -1015,6 +1169,7 @@ BacktestMetrics runBacktest(
         if (valid10)
         {
             ++state10.validSamples;
+
             state10.error +=
                 std::abs(
                     prediction10 -
@@ -1037,6 +1192,7 @@ BacktestMetrics runBacktest(
         if (valid15)
         {
             ++state15.validSamples;
+
             state15.error +=
                 std::abs(
                     prediction15 -
@@ -1059,6 +1215,7 @@ BacktestMetrics runBacktest(
         if (valid30)
         {
             ++state30.validSamples;
+
             state30.error +=
                 std::abs(
                     prediction30 -
@@ -1209,6 +1366,7 @@ BacktestMetrics runBacktest(
     return metrics;
 }
 
+
 BacktestMetrics runConfidenceBacktest(
     const std::vector<double>& prices,
     std::size_t windowSize,
@@ -1249,7 +1407,9 @@ BacktestMetrics runConfidenceBacktest(
 
     const std::size_t trainingEnd =
         static_cast<std::size_t>(
-            static_cast<double>(prices.size()) *
+            static_cast<double>(
+                prices.size()
+            ) *
             trainRatio
         );
 
@@ -1567,6 +1727,7 @@ BacktestMetrics runConfidenceBacktest(
         if (valid5)
         {
             ++state5.validSamples;
+
             state5.error +=
                 std::abs(
                     prediction5 -
@@ -1604,6 +1765,7 @@ BacktestMetrics runConfidenceBacktest(
         if (valid10)
         {
             ++state10.validSamples;
+
             state10.error +=
                 std::abs(
                     prediction10 -
@@ -1641,6 +1803,7 @@ BacktestMetrics runConfidenceBacktest(
         if (valid15)
         {
             ++state15.validSamples;
+
             state15.error +=
                 std::abs(
                     prediction15 -
@@ -1678,6 +1841,7 @@ BacktestMetrics runConfidenceBacktest(
         if (valid30)
         {
             ++state30.validSamples;
+
             state30.error +=
                 std::abs(
                     prediction30 -
@@ -1711,6 +1875,10 @@ BacktestMetrics runConfidenceBacktest(
                 );
             }
         }
+
+        /*
+            Baselines
+        */
 
         const double trailingReturn =
             calculateTrailingReturn(
@@ -1957,17 +2125,10 @@ BacktestMetrics runConfidenceBacktest(
         return metrics;
     }
 
-    metrics.signals5 =
-        state5.signals;
-
-    metrics.signals10 =
-        state10.signals;
-
-    metrics.signals15 =
-        state15.signals;
-
-    metrics.signals30 =
-        state30.signals;
+    metrics.signals5 = state5.signals;
+    metrics.signals10 = state10.signals;
+    metrics.signals15 = state15.signals;
+    metrics.signals30 = state30.signals;
 
     metrics.mae5 =
         state5.validSamples > 0
@@ -1993,37 +2154,129 @@ BacktestMetrics runConfidenceBacktest(
               state30.validSamples
             : 0.0;
 
-    metrics.coverage5 =
-        static_cast<double>(
-            state5.signals
-        ) /
-        static_cast<double>(
-            state5.validSamples
-        ) * 100.0;
+    if (state5.validSamples > 0)
+    {
+       metrics.coverage5 =
+    state5.validSamples > 0
+        ? static_cast<double>(state5.signals) /
+          static_cast<double>(state5.validSamples) *
+          100.0
+        : 0.0;
 
-    metrics.coverage10 =
-        static_cast<double>(
-            state10.signals
-        ) /
-        static_cast<double>(
-            state10.validSamples
-        ) * 100.0;
+        metrics.baseRatePositive5 =
+            static_cast<double>(
+                state5.actualPositive
+            ) /
+            state5.validSamples *
+            100.0;
 
-    metrics.coverage15 =
-        static_cast<double>(
-            state15.signals
-        ) /
-        static_cast<double>(
-            state15.validSamples
-        ) * 100.0;
+        metrics.naiveAccuracy5 =
+            static_cast<double>(
+                state5.naiveCorrect
+            ) /
+            state5.validSamples *
+            100.0;
 
-    metrics.coverage30 =
-        static_cast<double>(
-            state30.signals
-        ) /
-        static_cast<double>(
-            state30.validSamples
-        ) * 100.0;
+        metrics.directionalAccuracy5 =
+            static_cast<double>(
+                state5.majorityCorrect
+            ) /
+            state5.validSamples *
+            100.0;
+    }
+
+    if (state10.validSamples > 0)
+    {
+        metrics.coverage10 =
+            static_cast<double>(
+                state10.signals
+            ) /
+            state10.validSamples *
+            100.0;
+
+        metrics.baseRatePositive10 =
+            static_cast<double>(
+                state10.actualPositive
+            ) /
+            state10.validSamples *
+            100.0;
+
+        metrics.naiveAccuracy10 =
+            static_cast<double>(
+                state10.naiveCorrect
+            ) /
+            state10.validSamples *
+            100.0;
+
+        metrics.directionalAccuracy10 =
+            static_cast<double>(
+                state10.majorityCorrect
+            ) /
+            state10.validSamples *
+            100.0;
+    }
+
+    if (state15.validSamples > 0)
+    {
+        metrics.coverage15 =
+            static_cast<double>(
+                state15.signals
+            ) /
+            state15.validSamples *
+            100.0;
+
+        metrics.baseRatePositive15 =
+            static_cast<double>(
+                state15.actualPositive
+            ) /
+            state15.validSamples *
+            100.0;
+
+        metrics.naiveAccuracy15 =
+            static_cast<double>(
+                state15.naiveCorrect
+            ) /
+            state15.validSamples *
+            100.0;
+
+        metrics.directionalAccuracy15 =
+            static_cast<double>(
+                state15.majorityCorrect
+            ) /
+            state15.validSamples *
+            100.0;
+    }
+
+    if (state30.validSamples > 0)
+    {
+        metrics.coverage30 =
+            static_cast<double>(
+                state30.signals
+            ) /
+            state30.validSamples *
+            100.0;
+
+        metrics.baseRatePositive30 =
+            static_cast<double>(
+                state30.actualPositive
+            ) /
+            state30.validSamples *
+            100.0;
+
+        metrics.naiveAccuracy30 =
+            static_cast<double>(
+                state30.naiveCorrect
+            ) /
+            state30.validSamples *
+            100.0;
+
+        metrics.directionalAccuracy30 =
+            static_cast<double>(
+                state30.majorityCorrect
+            ) /
+            state30.validSamples *
+            100.0;
+    }
 
     if (state5.signals > 0)
     {
@@ -2046,10 +2299,16 @@ BacktestMetrics runConfidenceBacktest(
             metrics.signalAccuracy5;
 
         metrics.profitFactor5 =
-            state5.grossLoss > 0.0
+            state5.grossLoss > EPSILON
                 ? state5.grossProfit /
                   state5.grossLoss
                 : 0.0;
+
+        metrics.totalReturn5 =
+            state5.totalPnL;
+
+        metrics.maxDrawdown5 =
+            state5.maxDrawdown;
     }
 
     if (state10.signals > 0)
@@ -2073,10 +2332,16 @@ BacktestMetrics runConfidenceBacktest(
             metrics.signalAccuracy10;
 
         metrics.profitFactor10 =
-            state10.grossLoss > 0.0
+            state10.grossLoss > EPSILON
                 ? state10.grossProfit /
                   state10.grossLoss
                 : 0.0;
+
+        metrics.totalReturn10 =
+            state10.totalPnL;
+
+        metrics.maxDrawdown10 =
+            state10.maxDrawdown;
     }
 
     if (state15.signals > 0)
@@ -2100,10 +2365,16 @@ BacktestMetrics runConfidenceBacktest(
             metrics.signalAccuracy15;
 
         metrics.profitFactor15 =
-            state15.grossLoss > 0.0
+            state15.grossLoss > EPSILON
                 ? state15.grossProfit /
                   state15.grossLoss
                 : 0.0;
+
+        metrics.totalReturn15 =
+            state15.totalPnL;
+
+        metrics.maxDrawdown15 =
+            state15.maxDrawdown;
     }
 
     if (state30.signals > 0)
@@ -2127,119 +2398,77 @@ BacktestMetrics runConfidenceBacktest(
             metrics.signalAccuracy30;
 
         metrics.profitFactor30 =
-            state30.grossLoss > 0.0
+            state30.grossLoss > EPSILON
                 ? state30.grossProfit /
                   state30.grossLoss
                 : 0.0;
+
+        metrics.totalReturn30 =
+            state30.totalPnL;
+
+        metrics.maxDrawdown30 =
+            state30.maxDrawdown;
     }
 
-    metrics.totalReturn5 =
-        state5.totalPnL;
+    /*
+        Advanced risk metrics.
 
-    metrics.totalReturn10 =
-        state10.totalPnL;
+        These are trade-level metrics.
+        They should be interpreted carefully because
+        horizons overlap.
+    */
 
-    metrics.totalReturn15 =
-        state15.totalPnL;
+    assignAdvancedMetrics(
+        state5,
+        metrics.sharpe5,
+        metrics.sortino5,
+        metrics.calmar5,
+        metrics.wins5,
+        metrics.losses5,
+        metrics.bestTrade5,
+        metrics.worstTrade5,
+        metrics.averageWin5,
+        metrics.averageLoss5
+    );
 
-    metrics.totalReturn30 =
-        state30.totalPnL;
+    assignAdvancedMetrics(
+        state10,
+        metrics.sharpe10,
+        metrics.sortino10,
+        metrics.calmar10,
+        metrics.wins10,
+        metrics.losses10,
+        metrics.bestTrade10,
+        metrics.worstTrade10,
+        metrics.averageWin10,
+        metrics.averageLoss10
+    );
 
-    metrics.maxDrawdown5 =
-        state5.maxDrawdown;
+    assignAdvancedMetrics(
+        state15,
+        metrics.sharpe15,
+        metrics.sortino15,
+        metrics.calmar15,
+        metrics.wins15,
+        metrics.losses15,
+        metrics.bestTrade15,
+        metrics.worstTrade15,
+        metrics.averageWin15,
+        metrics.averageLoss15
+    );
 
-    metrics.maxDrawdown10 =
-        state10.maxDrawdown;
-
-    metrics.maxDrawdown15 =
-        state15.maxDrawdown;
-
-    metrics.maxDrawdown30 =
-        state30.maxDrawdown;
-
-    metrics.baseRatePositive5 =
-        static_cast<double>(
-            state5.actualPositive
-        ) /
-        state5.validSamples *
-        100.0;
-
-    metrics.baseRatePositive10 =
-        static_cast<double>(
-            state10.actualPositive
-        ) /
-        state10.validSamples *
-        100.0;
-
-    metrics.baseRatePositive15 =
-        static_cast<double>(
-            state15.actualPositive
-        ) /
-        state15.validSamples *
-        100.0;
-
-    metrics.baseRatePositive30 =
-        static_cast<double>(
-            state30.actualPositive
-        ) /
-        state30.validSamples *
-        100.0;
-
-    metrics.naiveAccuracy5 =
-        static_cast<double>(
-            state5.naiveCorrect
-        ) /
-        state5.validSamples *
-        100.0;
-
-    metrics.naiveAccuracy10 =
-        static_cast<double>(
-            state10.naiveCorrect
-        ) /
-        state10.validSamples *
-        100.0;
-
-    metrics.naiveAccuracy15 =
-        static_cast<double>(
-            state15.naiveCorrect
-        ) /
-        state15.validSamples *
-        100.0;
-
-    metrics.naiveAccuracy30 =
-        static_cast<double>(
-            state30.naiveCorrect
-        ) /
-        state30.validSamples *
-        100.0;
-
-    metrics.directionalAccuracy5 =
-        static_cast<double>(
-            state5.majorityCorrect
-        ) /
-        state5.validSamples *
-        100.0;
-
-    metrics.directionalAccuracy10 =
-        static_cast<double>(
-            state10.majorityCorrect
-        ) /
-        state10.validSamples *
-        100.0;
-
-    metrics.directionalAccuracy15 =
-        static_cast<double>(
-            state15.majorityCorrect
-        ) /
-        state15.validSamples *
-        100.0;
-
-    metrics.directionalAccuracy30 =
-        static_cast<double>(
-            state30.majorityCorrect
-        ) /
-        state30.validSamples *
-        100.0;
+    assignAdvancedMetrics(
+        state30,
+        metrics.sharpe30,
+        metrics.sortino30,
+        metrics.calmar30,
+        metrics.wins30,
+        metrics.losses30,
+        metrics.bestTrade30,
+        metrics.worstTrade30,
+        metrics.averageWin30,
+        metrics.averageLoss30
+    );
 
     metrics.zScore5 =
         calculateZScore(

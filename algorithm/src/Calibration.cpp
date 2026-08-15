@@ -4,6 +4,18 @@
 #include <cstddef>
 #include <vector>
 
+namespace
+{
+
+struct PavaBlock
+{
+    std::size_t first = 0;
+    std::size_t last = 0;
+    double accuracy = 0.0;
+    std::size_t weight = 0;
+};
+
+}
 
 std::vector<CalibrationBucket> buildCalibrationTable(
     std::vector<CalibrationPoint> points,
@@ -12,28 +24,20 @@ std::vector<CalibrationBucket> buildCalibrationTable(
 {
     std::vector<CalibrationBucket> table;
 
-    if (numBuckets == 0)
+    if (numBuckets == 0 || points.size() < numBuckets * 3)
     {
         return table;
     }
 
-    if (points.size() < numBuckets * 3)
-    {
-        return table;
-    }
-
-  
     std::sort(
         points.begin(),
         points.end(),
-        [](const CalibrationPoint& a,
-           const CalibrationPoint& b)
+        [](const CalibrationPoint& a, const CalibrationPoint& b)
         {
             return a.rawConfidence < b.rawConfidence;
         }
     );
 
-  
     const std::size_t bucketSize =
         points.size() / numBuckets;
 
@@ -64,7 +68,7 @@ std::vector<CalibrationBucket> buildCalibrationTable(
             }
         }
 
-        CalibrationBucket bucket{};
+        CalibrationBucket bucket;
 
         bucket.rawConfidenceLow =
             points[start].rawConfidence;
@@ -79,47 +83,31 @@ std::vector<CalibrationBucket> buildCalibrationTable(
         table.push_back(bucket);
     }
 
-    if (table.size() <= 1)
+    if (table.empty())
     {
         return table;
     }
-
-    
-    struct PavaBlock
-    {
-        std::size_t first;
-        std::size_t last;
-
-        double weightedAccuracy;
-        std::size_t weight;
-    };
 
     std::vector<PavaBlock> blocks;
     blocks.reserve(table.size());
 
     for (std::size_t i = 0; i < table.size(); ++i)
     {
-        
-        std::size_t weight = bucketSize;
+        const std::size_t weight =
+            (i == table.size() - 1)
+                ? points.size() -
+                    (table.size() - 1) * bucketSize
+                : bucketSize;
 
-        if (i == table.size() - 1)
-        {
-            weight =
-                points.size() -
-                (table.size() - 1) * bucketSize;
-        }
-
-        PavaBlock block{};
+        PavaBlock block;
 
         block.first = i;
         block.last = i;
+        block.accuracy = table[i].empiricalAccuracy;
         block.weight = weight;
-        block.weightedAccuracy =
-            table[i].empiricalAccuracy;
 
         blocks.push_back(block);
 
-       
         while (blocks.size() >= 2)
         {
             const std::size_t right =
@@ -128,13 +116,13 @@ std::vector<CalibrationBucket> buildCalibrationTable(
             const std::size_t left =
                 right - 1;
 
-            if (blocks[left].weightedAccuracy <=
-                blocks[right].weightedAccuracy)
+            if (blocks[left].accuracy <=
+                blocks[right].accuracy)
             {
                 break;
             }
 
-            PavaBlock merged{};
+            PavaBlock merged;
 
             merged.first =
                 blocks[left].first;
@@ -146,12 +134,12 @@ std::vector<CalibrationBucket> buildCalibrationTable(
                 blocks[left].weight +
                 blocks[right].weight;
 
-            merged.weightedAccuracy =
+            merged.accuracy =
                 (
-                    blocks[left].weightedAccuracy *
+                    blocks[left].accuracy *
                     static_cast<double>(blocks[left].weight)
                     +
-                    blocks[right].weightedAccuracy *
+                    blocks[right].accuracy *
                     static_cast<double>(blocks[right].weight)
                 )
                 /
@@ -164,7 +152,6 @@ std::vector<CalibrationBucket> buildCalibrationTable(
         }
     }
 
- 
     for (const auto& block : blocks)
     {
         for (std::size_t i = block.first;
@@ -172,14 +159,12 @@ std::vector<CalibrationBucket> buildCalibrationTable(
              ++i)
         {
             table[i].empiricalAccuracy =
-                block.weightedAccuracy;
+                block.accuracy;
         }
     }
 
     return table;
 }
-
-
 
 double lookupCalibratedConfidence(
     const std::vector<CalibrationBucket>& table,
@@ -191,22 +176,51 @@ double lookupCalibratedConfidence(
         return rawConfidence;
     }
 
+    rawConfidence =
+        std::max(0.0, std::min(1.0, rawConfidence));
 
-    for (const auto& bucket : table)
-    {
-        if (rawConfidence >= bucket.rawConfidenceLow &&
-            rawConfidence <= bucket.rawConfidenceHigh)
-        {
-            return bucket.empiricalAccuracy;
-        }
-    }
-
-    
-    if (rawConfidence < table.front().rawConfidenceLow)
+    if (rawConfidence <= table.front().rawConfidenceLow)
     {
         return table.front().empiricalAccuracy;
     }
 
+    if (rawConfidence >= table.back().rawConfidenceHigh)
+    {
+        return table.back().empiricalAccuracy;
+    }
+
+    for (std::size_t i = 0; i + 1 < table.size(); ++i)
+    {
+        const CalibrationBucket& left = table[i];
+        const CalibrationBucket& right = table[i + 1];
+
+        if (rawConfidence > left.rawConfidenceHigh &&
+            rawConfidence < right.rawConfidenceLow)
+        {
+            const double x1 = left.rawConfidenceHigh;
+            const double x2 = right.rawConfidenceLow;
+
+            if (x2 <= x1)
+            {
+                return right.empiricalAccuracy;
+            }
+
+            const double t =
+                (rawConfidence - x1) /
+                (x2 - x1);
+
+            return left.empiricalAccuracy +
+                   t *
+                   (right.empiricalAccuracy -
+                    left.empiricalAccuracy);
+        }
+
+        if (rawConfidence >= left.rawConfidenceLow &&
+            rawConfidence <= left.rawConfidenceHigh)
+        {
+            return left.empiricalAccuracy;
+        }
+    }
 
     return table.back().empiricalAccuracy;
 }
