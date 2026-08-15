@@ -194,3 +194,24 @@ This is a research/learning project, not a validated trading strategy. Specifica
               └───────────┬───────────┘
                           ▼
                     SIGNAL / NO SIGNAL
+
+
+---------------------------------------------------------
+                    
+
+
+                    Symbol       : TCS
+Window size  : 30 days
+
+Top 5 historical matches:
+  1. 2018-10-11   similarity: 96.4%
+  2. 2021-03-02   similarity: 93.1%
+  3. 2016-11-29   similarity: 91.7%
+  4. 2019-06-04   similarity: 90.2%
+  5. 2015-01-22   similarity: 88.9%
+
+Horizon    Predicted Return    Confidence    Signal
++5 days        +1.42%            71.3%       NO SIGNAL
++10 days       +2.05%            68.9%       NO SIGNAL
++15 days       +3.18%            77.4%       SIGNAL
++30 days       +4.60%            65.2%       NO SIGNAL

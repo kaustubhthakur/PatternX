@@ -13,7 +13,8 @@ HorizonConfidence calculateHorizonConfidence(
     std::size_t windowSize,
     std::size_t horizon,
     double threshold,
-    double minimumExpectedReturn
+    double minimumExpectedReturn,
+    double horizonTypicalStdDev
 )
 {
     HorizonConfidence result{};
@@ -29,7 +30,6 @@ HorizonConfidence calculateHorizonConfidence(
     double positiveReturnWeight = 0.0;
     double negativeReturnWeight = 0.0;
 
-    // NEW: collect (weight, return) pairs to measure dispersion
     std::vector<std::pair<double, double>> weightedReturns;
     weightedReturns.reserve(weightedMatches.size());
 
@@ -106,17 +106,13 @@ HorizonConfidence calculateHorizonConfidence(
     }
 
     /*
-        NEW: dispersion penalty.
-
-        A vote can be "6 vs 4" with historical returns that are
-        wildly scattered (-8%, +12%, -3%, +9% ...) or tightly
-        clustered (+1.8%, +2.1%, +1.5% ...). The vote fraction
-        alone can't tell these apart, but the second case is a
-        much stronger, more repeatable pattern.
-
-        We compute the weighted standard deviation of returns
-        and use it to shrink confidence when the matches disagree
-        sharply on magnitude, even if they agree on direction.
+        Dispersion penalty, normalized against what's TYPICAL for
+        THIS SPECIFIC HORIZON (horizonTypicalStdDev), instead of a
+        flat constant. Longer horizons naturally have wider return
+        dispersion regardless of pattern quality, so without this
+        normalization, +30 day predictions get punished far more
+        than +5 day ones purely due to horizon length, not because
+        the pattern match is actually worse.
     */
     if (weightedReturns.size() >= 2)
     {
@@ -147,32 +143,39 @@ HorizonConfidence calculateHorizonConfidence(
                 std::sqrt(weightedVariance);
 
             /*
-                Normalize dispersion against the magnitude of the
-                mean move itself. A 5% average move with 1% stddev
-                is tight; a 1% average move with 5% stddev is noise.
-
-                Add a small epsilon to avoid divide-by-zero.
+                Normalize against the horizon's typical stddev
+                instead of a flat "+1.0". Fall back to 1.0 if the
+                typical stddev couldn't be computed (e.g. not
+                enough history), to avoid divide-by-zero.
             */
+            const double normalizer =
+                (horizonTypicalStdDev > 1e-6)
+                    ? horizonTypicalStdDev
+                    : 1.0;
+
             const double dispersionRatio =
-                weightedStdDev /
-                (std::abs(weightedMean) + 1.0);
+                weightedStdDev / normalizer;
 
             /*
-                Map dispersion ratio to a penalty multiplier in
-                (0, 1]. Higher dispersion -> lower multiplier.
-                The 2.0 divisor controls how aggressively spread
-                is punished; tune this against your backtest.
+                dispersionRatio ~1.0  -> "as spread out as normal
+                                          for this horizon" -> mild
+                                          penalty.
+                dispersionRatio << 1.0 -> unusually tight cluster
+                                          -> little to no penalty.
+                dispersionRatio >> 1.0 -> unusually scattered
+                                          -> strong penalty.
             */
             const double dispersionPenalty =
                 1.0 / (1.0 + dispersionRatio / 2.0);
 
             result.confidence =
-    (0.7 * result.confidence) + (0.3 * result.confidence * dispersionPenalty);
+                (0.7 * result.confidence) +
+                (0.3 * result.confidence * dispersionPenalty);
         }
     }
 
     result.confidence =
-          std::min(1.0, std::max(0.0, result.confidence));
+        std::min(1.0, std::max(0.0, result.confidence));
 
     result.signal = result.confidence >= threshold;
 
@@ -180,6 +183,56 @@ HorizonConfidence calculateHorizonConfidence(
 }
 
 } // namespace
+
+double calculateHorizonTypicalStdDev(
+    const std::vector<double>& prices,
+    std::size_t horizon,
+    std::size_t cutoffIndex
+)
+{
+    if (cutoffIndex == 0 || cutoffIndex > prices.size())
+    {
+        cutoffIndex = prices.size();
+    }
+
+    std::vector<double> returns;
+    returns.reserve(cutoffIndex);
+
+    for (std::size_t i = 0; i + horizon < cutoffIndex; ++i)
+    {
+        const double currentPrice = prices[i];
+
+        if (currentPrice == 0.0)
+            continue;
+
+        const double futurePrice = prices[i + horizon];
+
+        const double r =
+            ((futurePrice - currentPrice) / currentPrice) * 100.0;
+
+        returns.push_back(r);
+    }
+
+    if (returns.size() < 2)
+    {
+        return 0.0;
+    }
+
+    double mean = 0.0;
+    for (double r : returns)
+        mean += r;
+    mean /= static_cast<double>(returns.size());
+
+    double variance = 0.0;
+    for (double r : returns)
+    {
+        const double diff = r - mean;
+        variance += diff * diff;
+    }
+    variance /= static_cast<double>(returns.size());
+
+    return std::sqrt(variance);
+}
 
 ConfidenceResult calculateConfidence(
     const std::vector<double>& prices,
@@ -191,17 +244,33 @@ ConfidenceResult calculateConfidence(
 {
     ConfidenceResult result{};
 
+    const double typicalStdDev5 =
+        calculateHorizonTypicalStdDev(prices, 5, prices.size());
+
+    const double typicalStdDev10 =
+        calculateHorizonTypicalStdDev(prices, 10, prices.size());
+
+    const double typicalStdDev15 =
+        calculateHorizonTypicalStdDev(prices, 15, prices.size());
+
+    const double typicalStdDev30 =
+        calculateHorizonTypicalStdDev(prices, 30, prices.size());
+
     result.confidence5 = calculateHorizonConfidence(
-        prices, weightedMatches, windowSize, 5, threshold, minimumExpectedReturn);
+        prices, weightedMatches, windowSize, 5,
+        threshold, minimumExpectedReturn, typicalStdDev5);
 
     result.confidence10 = calculateHorizonConfidence(
-        prices, weightedMatches, windowSize, 10, threshold, minimumExpectedReturn);
+        prices, weightedMatches, windowSize, 10,
+        threshold, minimumExpectedReturn, typicalStdDev10);
 
     result.confidence15 = calculateHorizonConfidence(
-        prices, weightedMatches, windowSize, 15, threshold, minimumExpectedReturn);
+        prices, weightedMatches, windowSize, 15,
+        threshold, minimumExpectedReturn, typicalStdDev15);
 
     result.confidence30 = calculateHorizonConfidence(
-        prices, weightedMatches, windowSize, 30, threshold, minimumExpectedReturn);
+        prices, weightedMatches, windowSize, 30,
+        threshold, minimumExpectedReturn, typicalStdDev30);
 
     return result;
 }
