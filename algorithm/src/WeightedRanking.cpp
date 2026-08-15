@@ -19,8 +19,7 @@ std::vector<WeightedMatch> calculateWeights(
         return result;
     }
 
-    // Controls how strongly distance affects the weight.
-    // Higher alpha = stronger preference for closer matches.
+  
     const double ALPHA = 5.0;
 
     double totalWeight = 0.0;
@@ -31,7 +30,6 @@ std::vector<WeightedMatch> calculateWeights(
     {
         double distance = distances[i];
 
-        // Exponential distance weighting
         double weight =
             std::exp(-ALPHA * distance);
 
@@ -45,7 +43,7 @@ std::vector<WeightedMatch> calculateWeights(
         totalWeight += weight;
     }
 
-    // Normalize weights so that their sum = 1
+   
     if (totalWeight > 0.0)
     {
         for (auto& match : result)

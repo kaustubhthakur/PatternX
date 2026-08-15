@@ -4,9 +4,7 @@
 #include <cmath>
 #include <stdexcept>
 
-// ------------------------------------------------------------
-// Euclidean distance between two FFT signatures
-// ------------------------------------------------------------
+
 double calculateDistance(
     const std::vector<double>& a,
     const std::vector<double>& b
@@ -35,9 +33,7 @@ double calculateDistance(
 }
 
 
-// ------------------------------------------------------------
-// Calculate trend distance
-// ------------------------------------------------------------
+
 double calculateTrendDistance(
     const std::vector<double>& currentWindow,
     const std::vector<double>& historicalWindow
@@ -81,9 +77,7 @@ double calculateTrendDistance(
 }
 
 
-// ------------------------------------------------------------
-// Find top pattern matches
-// ------------------------------------------------------------
+
 std::vector<PatternMatch> findTopMatches(
     const std::vector<double>& currentSignature,
     const std::vector<std::vector<double>>& historicalSignatures,
@@ -157,7 +151,7 @@ std::vector<PatternMatch> findTopMatches(
 
     for (const auto& candidate : matches)
     {
-        // Exclude candidates too close to current window
+        
         std::size_t distanceFromCurrent =
             currentIndex > candidate.windowIndex
             ? currentIndex - candidate.windowIndex
@@ -168,7 +162,7 @@ std::vector<PatternMatch> findTopMatches(
             continue;
         }
 
-        // Exclude near-duplicate selected matches
+        
         bool tooClose = false;
 
         for (const auto& chosen : selected)

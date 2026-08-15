@@ -11,20 +11,12 @@ constexpr std::size_t MOMENTUM_LOOKBACK = 5;
 constexpr std::size_t TREND_LOOKBACK = 10;
 constexpr std::size_t VOLATILITY_LOOKBACK = 10;
 
-/*
-    Controls how aggressively regime differences are penalized.
 
-    1.0  = moderate
-    >1   = stronger filtering
-*/
 constexpr double REGIME_STRENGTH = 1.50;
 
 constexpr double EPSILON = 1e-12;
 
 
-/*
-    Return over N periods ending at endIndex.
-*/
 double calculateReturn(
     const std::vector<double>& prices,
     std::size_t endIndex,
@@ -54,9 +46,6 @@ double calculateReturn(
 }
 
 
-/*
-    Standard deviation of daily percentage returns.
-*/
 double calculateVolatility(
     const std::vector<double>& prices,
     std::size_t endIndex,
@@ -171,25 +160,12 @@ Regime calculateRegime(
 }
 
 
-/*
-    Convert regime difference into a similarity score.
-
-    Score is in approximately [0, 1]:
-
-        1.0 = very similar regime
-        0.0 = very different regime
-*/
 double calculateRegimeSimilarity(
     const Regime& current,
     const Regime& historical
 )
 {
-    /*
-        Return differences.
 
-        The denominator prevents tiny-return regimes
-        from becoming excessively sensitive.
-    */
     const double momentumDifference =
         std::abs(
             current.momentum5 -
@@ -206,13 +182,7 @@ double calculateRegimeSimilarity(
         (2.0 +
          std::abs(current.trend10));
 
-    /*
-        Volatility is better compared multiplicatively.
 
-        log ratio:
-            0 = identical volatility
-            positive/negative = different volatility
-    */
     const double currentVolatility =
         std::max(
             current.volatility10,

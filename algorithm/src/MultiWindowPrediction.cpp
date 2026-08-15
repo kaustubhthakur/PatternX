@@ -259,9 +259,6 @@ WindowPrediction calculateWindowPrediction(
     }
 
 
-    /*
-        Generate predictions for +5 / +10 / +15 / +30 days.
-    */
     for (std::size_t h = 0;
          h < HORIZONS.size();
          ++h)
@@ -295,14 +292,6 @@ WindowPrediction calculateWindowPrediction(
     }
 
 
-    /*
-        NEW: Day-by-day continuation path (days 1 through 5).
-
-        Uses the exact same regime-filtered, weighted matches
-        already computed above — evaluated at every day instead
-        of only the fixed +5/+10/+15/+30 checkpoints. This gives
-        the shape of the expected move, not just the endpoint.
-    */
     for (std::size_t day = 1; day <= 5; ++day)
     {
         double dayPrediction = 0.0;
