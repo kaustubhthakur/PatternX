@@ -1,208 +1,161 @@
-const pool = require("../pool");
+const User = require("../models/User");
 
-exports.createUser = async ({
-  username,
-  email,
-  password,
-}) => {
-  const result = await pool.query(
-    `
-    INSERT INTO users (
-      username,
-      email,
-      password,
-      avatar,
-      is_online
-    )
-    VALUES (
-      $1,
-      $2,
-      $3,
-      NULL,
-      FALSE
-    )
-    RETURNING
-      id,
-      username,
-      email,
-      avatar,
-      is_online,
-      created_at
-    `,
-    [username, email, password]
-  );
+exports.getProfile = async (req, res) => {
+  try {
+    const user = await User.getUser(req.user.id);
 
-  return result.rows[0];
-};
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
 
-exports.findUserByEmail = async (email) => {
-  const result = await pool.query(
-    `
-    SELECT *
-    FROM users
-    WHERE email = $1
-    `,
-    [email]
-  );
+    res.status(200).json({
+      success: true,
+      user,
+    });
+  } catch (error) {
+    console.error(error);
 
-  return result.rows[0];
-};
-
-exports.findUserByUsername = async (username) => {
-  const result = await pool.query(
-    `
-    SELECT *
-    FROM users
-    WHERE username = $1
-    `,
-    [username]
-  );
-
-  return result.rows[0];
-};
-
-exports.findUserById = async (id) => {
-  const result = await pool.query(
-    `
-    SELECT *
-    FROM users
-    WHERE id = $1
-    `,
-    [id]
-  );
-
-  return result.rows[0];
-};
-
-exports.getUser = async (id) => {
-  const result = await pool.query(
-    `
-    SELECT
-      id,
-      username,
-      email,
-      avatar,
-      is_online,
-      created_at
-    FROM users
-    WHERE id = $1
-    `,
-    [id]
-  );
-
-  return result.rows[0];
-};
-
-exports.getAllUsers = async () => {
-  const result = await pool.query(
-    `
-    SELECT
-      id,
-      username,
-      email,
-      avatar,
-      is_online,
-      created_at
-    FROM users
-    ORDER BY created_at DESC
-    `
-  );
-
-  return result.rows;
-};
-
-exports.updateUser = async (
-  id,
-  {
-    username,
-    avatar,
+    res.status(500).json({
+      success: false,
+      message: "Failed to get profile",
+    });
   }
-) => {
-  const result = await pool.query(
-    `
-    UPDATE users
-    SET
-      username = COALESCE($1, username),
-      avatar = COALESCE($2, avatar)
-    WHERE id = $3
-    RETURNING
-      id,
-      username,
-      email,
-      avatar,
-      is_online,
-      created_at
-    `,
-    [username, avatar, id]
-  );
-
-  return result.rows[0];
 };
 
-exports.updateOnlineStatus = async (
-  userId,
-  isOnline
-) => {
-  const result = await pool.query(
-    `
-    UPDATE users
-    SET
-      is_online = $1
-    WHERE id = $2
-    RETURNING
-      id,
-      username,
-      email,
-      avatar,
-      is_online,
-      created_at
-    `,
-    [isOnline, userId]
-  );
+exports.getUser = async (req, res) => {
+  try {
+    const user = await User.getUser(req.params.id);
 
-  return result.rows[0];
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user,
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to get user",
+    });
+  }
 };
 
-exports.saveLoginOtp = async (
-  userId,
-  otp,
-  expiresAt
-) => {
-  await pool.query(
-    `
-    INSERT INTO login_otps (
-      user_id,
-      otp,
-      expires_at
-    )
-    VALUES ($1, $2, $3)
-    `,
-    [userId, otp, expiresAt]
-  );
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.getAllUsers();
+
+    res.status(200).json({
+      success: true,
+      users,
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to get users",
+    });
+  }
 };
 
-exports.getLatestOtp = async (userId) => {
-  const result = await pool.query(
-    `
-    SELECT *
-    FROM login_otps
-    WHERE user_id = $1
-    ORDER BY created_at DESC
-    LIMIT 1
-    `,
-    [userId]
-  );
+exports.updateProfile = async (req, res) => {
+  try {
+    const { username, avatar } = req.body;
 
-  return result.rows[0];
+    if (
+      username !== undefined &&
+      (!username || username.trim().length < 3)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Username must be at least 3 characters",
+      });
+    }
+
+    const user = await User.updateUser(req.user.id, {
+      username:
+        username !== undefined
+          ? username.trim()
+          : null,
+      avatar:
+        avatar !== undefined
+          ? avatar
+          : null,
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      user,
+    });
+  } catch (error) {
+    console.error(error);
+
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "Username already exists",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update profile",
+    });
+  }
 };
 
-exports.deleteOtp = async (userId) => {
-  await pool.query(
-    `
-    DELETE FROM login_otps
-    WHERE user_id = $1
-    `,
-    [userId]
-  );
-};
+exports.updateOnlineStatus = async (req, res) => {
+  try {
+    const { isOnline } = req.body;
 
+    if (typeof isOnline !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "isOnline must be a boolean",
+      });
+    }
+
+    const user = await User.updateOnlineStatus(
+      req.user.id,
+      isOnline
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Online status updated",
+      user,
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update online status",
+    });
+  }
+};
